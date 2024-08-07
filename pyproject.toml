@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "cue-provider-utility"
+version = "0.1.0"
+description = "Data provider utility to upload data to NASA CUE in python."
+authors = ["Davis Gaunt <bdg0015@uah.edu>"]
+license = "Apache-2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
