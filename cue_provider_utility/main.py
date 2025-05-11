@@ -202,7 +202,7 @@ def upload_command(
                 part_concurrency=final_part_concurrency,
                 auto_approve=auto_approve
             )
-            click.secho("Upload process finished (simulated).", fg="green")
+            click.secho("Upload process finished.", fg="green")
 
         asyncio.run(run_upload())
 
