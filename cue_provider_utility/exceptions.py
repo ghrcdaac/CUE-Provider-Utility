@@ -1,10 +1,11 @@
 """
 Custom exceptions for the CUE Provider Utility.
 """
+from typing import Optional
 
 class CUEProviderError(Exception):
     """Base exception for all application-specific errors."""
-    def __init__(self, message: str, original_exception: Exception | None = None):
+    def __init__(self, message: str, original_exception: Optional[Exception] = None): # <<< Optional used here
         super().__init__(message)
         self.original_exception = original_exception
 
@@ -18,7 +19,7 @@ class AuthError(CUEProviderError):
 
 class APIRequestError(CUEProviderError):
     """Errors occurring during API requests to the backend."""
-    def __init__(self, message: str, status_code: int | None = None, response_content: str | None = None, original_exception: Exception | None = None):
+    def __init__(self, message: str, status_code: Optional[int] = None, response_content: Optional[str] = None, original_exception: Optional[Exception] = None): # <<< Optional used here
         super().__init__(message, original_exception)
         self.status_code = status_code
         self.response_content = response_content

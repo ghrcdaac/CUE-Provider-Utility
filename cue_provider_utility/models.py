@@ -1,17 +1,23 @@
 """
 Pydantic models for configuration, API requests/responses, and internal data structures.
 """
-from pydantic import BaseModel, Field, HttpUrl, FilePath, DirectoryPath, validator
+from pydantic import BaseModel, Field, HttpUrl, FilePath, DirectoryPath, validator, field_serializer
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 # --- Configuration Models ---
 
 class EnvironmentURLs(BaseModel):
-    prod: HttpUrl = Field(default="https://upload.earthdata.nasa.gov/api/v1")
-    uat: HttpUrl = Field(default="https://upload.uat.earthdata.nasa.gov/api/v1")
-    sit: HttpUrl = Field(default="https://upload.sit.earthdata.nasa.gov/api/v1")
-    local: HttpUrl = Field(default="http://localhost:8000/v1")
+    prod: HttpUrl = Field(default="https://upload.earthdata.nasa.gov/api/v1/")
+    uat: HttpUrl = Field(default="https://upload.uat.earthdata.nasa.gov/api/v1/")
+    sit: HttpUrl = Field(default="https://upload.sit.earthdata.nasa.gov/api/v1/")
+    local: HttpUrl = Field(default="http://localhost:8000/v1/")
+    
+    # Explicitly serialize HttpUrl fields to strings when dumping to JSON-like structures
+    @field_serializer('prod', 'uat', 'sit', 'local', when_used='json-unless-none')
+    def serialize_urls_to_str(self, v: HttpUrl) -> str:
+        return str(v)
+
 
 class AppConfig(BaseModel):
     api_token: Optional[str] = None

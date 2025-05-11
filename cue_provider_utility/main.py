@@ -6,6 +6,7 @@ import asyncio
 import click
 import sys
 from pathlib import Path
+from typing import Optional 
 
 from .config_manager import (
     ensure_config_exists,
@@ -37,7 +38,7 @@ setup_logging(log_path=LOG_FILE_PATH) # Setup logging early
 @click.group(context_settings=dict(help_option_names=['-h', '--help']))
 @click.version_option(package_name='CUE-Provider-Utility')
 @click.option(
-    '-T', '--token',
+    '-t', '--token',
     metavar='TEXT',
     envvar="CUE_UPLOAD_API_TOKEN", # Also checked by auth_handler
     help="Authentication token (JWT). Overrides token in config file or .netrc."
@@ -70,10 +71,10 @@ setup_logging(log_path=LOG_FILE_PATH) # Setup logging early
 @click.pass_context
 def cli_app(
     ctx: click.Context,
-    token: str | None,
-    env: str | None,
-    config_path_override: Path | None,
-    log_file_override: Path | None,
+    token: Optional[str], 
+    env: Optional[str], 
+    config_path_override: Optional[Path], 
+    log_file_override: Optional[Path], 
     verbose: int,
     quiet: bool,
 ):
@@ -133,7 +134,7 @@ def cli_app(
     help="Name of the target collection in the backend system."
 )
 @click.option(
-    '-t', '--target-path',
+    '-tp', '--target-path',
     type=str,
     help="User-defined sub-path within the collection for organization."
 )
@@ -157,9 +158,9 @@ def upload_command(
     ctx: click.Context,
     upload_path: Path,
     collection: str,
-    target_path: str | None,
-    file_concurrency: int | None,
-    part_concurrency: int | None,
+    target_path: Optional[str], 
+    file_concurrency: Optional[int], 
+    part_concurrency: Optional[int], 
     auto_approve: bool,
 ):
     """Uploads files or directories to CUE."""
@@ -179,13 +180,16 @@ def upload_command(
         click.echo("Auto-approve enabled.")
 
     try:
-        auth_token = get_auth_token(global_args.token_cli, config)
+        # Determine selected_env_url for auth_handler's .netrc lookup
+        selected_env = global_args.env_cli or config.default_env
+        selected_env_url_obj = getattr(config.environments, selected_env, None)
+        selected_env_url_str = str(selected_env_url_obj) if selected_env_url_obj else None
+
+        auth_token = get_auth_token(global_args.token_cli, config, selected_env_url_str)
         if not auth_token:
             click.secho("Authentication token not found or provided. Please configure using 'cue-upload configure --token' or use the --token option.", fg="red", err=True)
             sys.exit(1)
 
-        # Placeholder for the actual async upload call
-        # For now, we'll just simulate it.
         async def run_upload():
             await process_upload(
                 source_path=upload_path,
@@ -207,7 +211,6 @@ def upload_command(
         sys.exit(1)
     except Exception as e:
         click.secho(f"An unexpected error occurred: {e}", fg="red", err=True)
-        # Log the full traceback for unexpected errors
         import logging
         logging.exception("Unexpected error during upload command")
         sys.exit(1)
@@ -226,14 +229,13 @@ def configure_command(ctx: click.Context, set_token_only: bool):
 
     if set_token_only:
         new_token = click.prompt("Enter API Token (leave blank to keep current)", hide_input=True, default="", show_default=False)
-        if new_token: # Only save if something was entered. Default "" means no change if blank.
+        if new_token: 
             save_api_token_to_config(new_token, global_args.config_path_override)
             click.secho("API Token updated.", fg="green")
         else:
             click.echo("API Token not changed.")
         return
 
-    # Interactive configuration for other settings
     settings_to_configure = {
         "default_env": {"prompt": "Default backend environment", "type": str, "choices": ['prod', 'uat', 'sit', 'local']},
         "multipart_threshold_gb": {"prompt": "Multipart upload threshold (GB)", "type": int},
@@ -253,16 +255,15 @@ def configure_command(ctx: click.Context, set_token_only: bool):
         choices = details.get("choices")
 
         if choices:
-            # Using click.Choice for validation and interactive prompt
             choice_type = click.Choice(choices, case_sensitive=False)
             new_value_str = click.prompt(prompt_text, type=choice_type, default=str(current_value) if current_value is not None else None, show_default="current")
-            new_value = new_value_str # Already validated by click.Choice
+            new_value = new_value_str 
         else:
             new_value_str = click.prompt(prompt_text, default=str(current_value) if current_value is not None else "", show_default="current")
-            if new_value_str == "" and current_value is not None: # User pressed enter, keep current
+            if new_value_str == "" and current_value is not None: 
                 new_value = current_value
-            elif new_value_str == "" and current_value is None: # User pressed enter, no current value
-                 new_value = None # Or some other default if applicable
+            elif new_value_str == "" and current_value is None: 
+                 new_value = None 
             else:
                 try:
                     new_value = value_type(new_value_str)
@@ -270,7 +271,7 @@ def configure_command(ctx: click.Context, set_token_only: bool):
                     click.secho(f"Invalid value for {key}. Expected {value_type.__name__}.", fg="red")
                     continue
         
-        if new_value != current_value and new_value is not None : # only update if changed and not explicitly set to None by empty input on no default
+        if new_value != current_value and new_value is not None : 
              updated_values[key] = new_value
 
 
@@ -281,16 +282,15 @@ def configure_command(ctx: click.Context, set_token_only: bool):
     else:
         click.echo("No configuration values were changed.")
 
-    # Special handling for API token separately if not set_token_only
     if not set_token_only:
         new_token = click.prompt("Enter API Token (press Enter to keep current, or type 'DELETE' to remove)", default="", show_default=False, hide_input=True)
         if new_token.upper() == 'DELETE':
-            save_api_token_to_config(None, global_args.config_path_override) # Save None to remove
+            save_api_token_to_config(None, global_args.config_path_override) 
             click.secho("API Token removed from config.", fg="yellow")
-        elif new_token: # If user typed something (and not DELETE)
+        elif new_token: 
             save_api_token_to_config(new_token, global_args.config_path_override)
             click.secho("API Token updated.", fg="green")
-        else: # User pressed enter
+        else: 
             click.echo("API Token not changed.")
 
 
@@ -366,7 +366,7 @@ def ignore_reset_command(ctx: click.Context):
 @click.option("-f", "--follow", is_flag=True, help="Output appended data as the log file grows.")
 @click.option("--raw", is_flag=True, help="Display raw log content without special formatting.")
 @click.pass_context
-def logs_command(ctx: click.Context, lines: int | None, follow: bool, raw: bool):
+def logs_command(ctx: click.Context, lines: Optional[int], follow: bool, raw: bool): 
     """Views application logs directly in the terminal."""
     global_args: GlobalArgs = ctx.obj
     log_file_to_view = global_args.log_file_override or get_log_file_path(global_args.config_path_override)
@@ -380,6 +380,4 @@ def logs_command(ctx: click.Context, lines: int | None, follow: bool, raw: bool)
 
 
 if __name__ == '__main__':
-    # This allows running the CLI directly using `python -m cue_provider_utility.main`
-    # However, the primary entry point is via the `cue-upload` script installed by Poetry.
     cli_app()

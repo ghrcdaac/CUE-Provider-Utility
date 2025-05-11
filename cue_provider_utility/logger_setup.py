@@ -6,9 +6,10 @@ import logging
 import sys
 from pathlib import Path
 import asyncio
-import time # For the --follow functionality
+import time 
+from typing import Optional
 
-from rich.logging import RichHandler # For prettier console logs
+from rich.logging import RichHandler 
 from rich.console import Console
 from rich.text import Text
 
@@ -21,6 +22,7 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # Global console object for rich printing, can be imported elsewhere
 rich_console = Console(stderr=True) # Direct errors and logs to stderr by default
+logger = logging.getLogger(__name__)
 
 def get_log_file_path(config_path_override: Optional[Path] = None) -> Path:
     """
