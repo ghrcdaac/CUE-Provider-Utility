@@ -1,6 +1,6 @@
 # CUE Provider Utility (cue-upload)
 
-**Version:** 0.1.0 (Align with your `pyproject.toml`)  
+**Version:** 0.1.0
 **License:** Apache-2.0
 
 ## Overview

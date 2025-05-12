@@ -7,7 +7,7 @@ import netrc
 from pathlib import Path
 from typing import Optional 
 import logging
-import sys # For platform check if needed for .netrc permissions
+import sys 
 
 from .models import AppConfig
 from .exceptions import AuthError

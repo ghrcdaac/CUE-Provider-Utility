@@ -24,8 +24,8 @@ from .ignored_files_handler import (
     list_ignore_patterns,
     reset_user_ignore_patterns,
 )
-from .uploader import process_upload # Placeholder for actual upload logic
-from .models import GlobalArgs # For context object
+from .uploader import process_upload 
+from .models import GlobalArgs 
 from .exceptions import CUEProviderError
 
 
@@ -49,12 +49,12 @@ setup_logging(log_path=LOG_FILE_PATH) # Setup logging early
     help="Target backend environment. Overrides default_env in config."
 )
 @click.option(
-    '--config', 'config_path_override', # internal name for context
+    '--config', 'config_path_override', 
     type=click.Path(dir_okay=False, path_type=Path),
     help=f"Path to a custom configuration file. Default: {get_config_file_path()}"
 )
 @click.option(
-    '--log-file', 'log_file_override', # internal name for context
+    '--log-file', 'log_file_override',
     type=click.Path(path_type=Path),
     help=f"Path to a custom log file or directory. Default: {LOG_FILE_PATH.parent if LOG_FILE_PATH else '~/.cue-upload/logs/'}"
 )

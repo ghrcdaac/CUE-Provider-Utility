@@ -11,7 +11,7 @@ from typing import Optional
 from .models import AppConfig, GlobalArgs
 from .exceptions import UploadError, FileProcessingError, APIRequestError, ConfigError
 from .api_client import ApiClient
-from .single_file_uploader import handle_single_file_upload # <<< VERIFY THIS IMPORT
+from .single_file_uploader import handle_single_file_upload
 from .multipart_uploader import handle_multipart_upload
 from .folder_processor import process_folder_upload
 from .utils import get_file_size, is_file_type_disallowed, format_bytes 
@@ -79,7 +79,7 @@ async def process_upload(
                 logger.info(
                     f"File size {readable_file_size} <= threshold {readable_threshold}. Using single file upload for {source_path.name}."
                 )
-                await handle_single_file_upload( # <<< Function being called
+                await handle_single_file_upload( 
                     file_path=source_path, file_size=file_size, collection=collection,
                     target_sub_path=target_sub_path, api_client=api_client, config=config,
                     global_args=global_args

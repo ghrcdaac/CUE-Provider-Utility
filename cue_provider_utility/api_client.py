@@ -11,10 +11,10 @@ from urllib.parse import urljoin
 from .models import (
     AppConfig, GlobalArgs,
     InitiateUploadRequest, InitiateUploadResponse,
-    ConfirmSingleUploadRequest, # New
+    ConfirmSingleUploadRequest,
     MultipartStartRequest, MultipartStartResponse,
     MultipartGetPartUrlRequest, MultipartGetPartUrlResponse,
-    MultipartCompleteRequest, MultipartCompleteResponse, # MultipartCompleteResponse might need file_id if backend sends
+    MultipartCompleteRequest, MultipartCompleteResponse, 
     MultipartAbortRequest,
     APIErrorResponse 
 )
@@ -120,7 +120,7 @@ class ApiClient:
             response_model=InitiateUploadResponse
         )
 
-    async def confirm_single_upload(self, payload: ConfirmSingleUploadRequest) -> None: # Or a specific response model
+    async def confirm_single_upload(self, payload: ConfirmSingleUploadRequest) -> None: 
         """Confirms a successful single file S3 upload with the backend."""
         endpoint = "/v1/upload/confirm_single" # NEW ENDPOINT
         # Expecting 200 or 201 from backend, no complex response model needed unless backend sends one

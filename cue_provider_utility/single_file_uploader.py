@@ -19,7 +19,7 @@ import aiofiles
 
 logger = logging.getLogger(__name__)
 
-async def handle_single_file_upload( # Ensure this function name is exact
+async def handle_single_file_upload( 
     file_path: Path,
     file_size: int,
     collection: str, 
@@ -67,8 +67,8 @@ async def handle_single_file_upload( # Ensure this function name is exact
     if presigned_info is None: 
          raise UploadError(f"Failed to obtain presigned URL for {file_path.name} (logic safeguard).")
 
-    # Upload to S3
-    if presigned_info.fields is not None: # Presigned POST
+
+    if presigned_info.fields is not None: 
         rich_console.print(f"  Uploading {file_path.name} to S3 (Presigned POST)...")
         try:
             s3_response = await api_client.upload_to_s3_presigned_post(
@@ -85,7 +85,7 @@ async def handle_single_file_upload( # Ensure this function name is exact
                 raise UploadError(f"S3 upload (POST) failed for {file_path.name} with status {s3_response.status_code}.")
         except APIRequestError as e: 
             raise UploadError(f"S3 upload (POST) failed for {file_path.name}.", original_exception=e)
-    else: # Assume Presigned PUT
+    else: 
         rich_console.print(f"  Uploading {file_path.name} to S3 (Presigned PUT)...")
         try:
             async with aiofiles.open(file_path, 'rb') as f:

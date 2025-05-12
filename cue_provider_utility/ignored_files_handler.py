@@ -88,7 +88,7 @@ def remove_user_ignore_pattern(pattern: str, config_path_override: Optional[Path
 def reset_user_ignore_patterns(config_path_override: Optional[Path] = None) -> None:
     """Clears all user-defined ignore patterns from the config."""
     try:
-        set_user_ignore_patterns([], config_path_override) # Set to empty list
+        set_user_ignore_patterns([], config_path_override)
         logger.info("User-defined ignore patterns have been reset.")
     except ConfigError as e:
         raise IgnoredFileError(f"Failed to reset ignore patterns: {e}", original_exception=e)

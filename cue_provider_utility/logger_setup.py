@@ -48,8 +48,8 @@ def get_log_file_path(config_path_override: Optional[Path] = None) -> Path:
 
 def setup_logging(
     log_path: Optional[Path] = None,
-    file_log_level: str = "INFO", # From config, typically
-    console_log_level: str = "INFO", # From CLI verbosity
+    file_log_level: str = "INFO", 
+    console_log_level: str = "INFO",
     disable_file_logging: bool = False
 ) -> None:
     """
@@ -70,9 +70,9 @@ def setup_logging(
     lowest_level = min(numeric_file_level, numeric_console_level)
     logging.basicConfig(
         level=lowest_level,
-        format=CONSOLE_FORMAT, # Default format, RichHandler will override for console
+        format=CONSOLE_FORMAT, 
         datefmt=DATE_FORMAT,
-        handlers=[]) # Start with no handlers, add them below
+        handlers=[])
 
     # Get the root logger
     root_logger = logging.getLogger()
@@ -84,9 +84,9 @@ def setup_logging(
     # Use the global rich_console
     rich_handler = RichHandler(
         console=rich_console,
-        show_time=False, # File logger has time
+        show_time=False, 
         show_level=True,
-        show_path=False, # File logger has path
+        show_path=False,
         markup=True,
         rich_tracebacks=True,
         tracebacks_show_locals=True,

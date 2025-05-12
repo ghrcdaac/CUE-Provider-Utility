@@ -146,14 +146,13 @@ async def _upload_one_file_from_folder(
                 global_args=global_args
             )
         file_task.status = "success"
-        # progress.update(file_specific_task_id, completed=file_task.size, description=f"[green]Done: {file_task.relative_path}[/green]", visible=False)
-        progress.update(overall_folder_task_id, advance=1) # Advance overall folder progress by one file
+
+        progress.update(overall_folder_task_id, advance=1) 
 
     except (UploadError, FileProcessingError, APIRequestError) as e:
         logger.error(f"Failed to upload file {file_task.local_path} (relative: {file_task.relative_path}): {e}")
         file_task.status = "failed"
         file_task.error_message = str(e)
-        # progress.update(file_specific_task_id, description=f"[red]Failed: {file_task.relative_path}[/red]", visible=True)
         progress.update(overall_folder_task_id, advance=1) # Still advance, as file processing is "done" (failed)
         rich_console.print(f"[red]Failed: {file_task.relative_path} - {str(e).splitlines()[0]}[/red]")
 
@@ -162,7 +161,6 @@ async def _upload_one_file_from_folder(
         logger.critical(f"Unexpected critical error uploading file {file_task.local_path} (relative: {file_task.relative_path}): {e}", exc_info=True)
         file_task.status = "failed"
         file_task.error_message = f"Unexpected critical error: {e}"
-        # progress.update(file_specific_task_id, description=f"[red]CRITICAL ERROR: {file_task.relative_path}[/red]", visible=True)
         progress.update(overall_folder_task_id, advance=1)
         rich_console.print(f"[bold red]CRITICAL ERROR during upload of {file_task.relative_path}: {e}[/bold red]")
 
@@ -200,10 +198,10 @@ async def process_folder_upload(
             return
 
     semaphore = asyncio.Semaphore(file_concurrency)
-    async_upload_tasks: List[asyncio.Task] = [] # Renamed
+    async_upload_tasks: List[asyncio.Task] = [] 
     
-    successful_uploads_count = 0 # Renamed
-    failed_uploads_count = 0 # Renamed
+    successful_uploads_count = 0 
+    failed_uploads_count = 0 
 
     with Progress(
         TextColumn("[progress.description]{task.description}"),
@@ -211,10 +209,10 @@ async def process_folder_upload(
         TaskProgressColumn(), 
         TimeElapsedColumn(),
         console=rich_console
-    ) as overall_progress: # Renamed from 'progress'
+    ) as overall_progress:
         folder_progress_task_id = overall_progress.add_task(f"Uploading folder: {folder_path.name}", total=num_files_for_upload) 
 
-        async def folder_file_worker_wrapper(file_to_upload_item: FileToUpload): # Renamed
+        async def folder_file_worker_wrapper(file_to_upload_item: FileToUpload): 
             nonlocal successful_uploads_count, failed_uploads_count 
             async with semaphore:
                 await _upload_one_file_from_folder(
@@ -258,6 +256,4 @@ async def process_folder_upload(
         pass # Already handled by "No files found"
     
     if failed_uploads_count > 0:
-        # Optionally, write failed files to a log or separate file
-        # Path(config.log_file_directory / f"failed_folder_upload_{folder_path.name}_{timestamp}.txt")
         raise UploadError(f"{failed_uploads_count} files failed to upload during folder processing. Check logs for details.")

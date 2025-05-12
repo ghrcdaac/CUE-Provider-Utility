@@ -30,8 +30,8 @@ def ensure_config_exists(config_path_override: Optional[Path] = None) -> None:
         config_dir.mkdir(parents=True, exist_ok=True)
         if not config_file_path.exists():
             logger.info(f"Configuration file not found at {config_file_path}. Creating with defaults.")
-            default_config = AppConfig() # Create default model
-            save_config(default_config, config_file_path) # Pass the path here
+            default_config = AppConfig() 
+            save_config(default_config, config_file_path)
     except OSError as e:
         raise ConfigError(f"Could not create config directory or file at {config_file_path}: {e}", original_exception=e)
     except Exception as e:
@@ -114,7 +114,7 @@ def save_config_value(key: str, value: Any, config_path_override: Optional[Path]
         parent_key, child_key = key.split('.', 1)
         parent_obj = getattr(current_config, parent_key, None)
         if parent_obj is not None and isinstance(parent_obj, object): # Check if parent_obj is a Pydantic model or dict
-            if hasattr(parent_obj, child_key): # For Pydantic models
+            if hasattr(parent_obj, child_key):
                  setattr(parent_obj, child_key, value)
             elif isinstance(parent_obj, dict) and child_key in parent_obj: # For plain dicts (less likely with Pydantic)
                  parent_obj[child_key] = value
@@ -127,7 +127,7 @@ def save_config_value(key: str, value: Any, config_path_override: Optional[Path]
     else:
         raise ConfigError(f"Invalid configuration key: {key}")
 
-    save_config(current_config, config_file_to_use) # Save the modified config object
+    save_config(current_config, config_file_to_use)
     
     # Invalidate cache as we've changed the underlying file
     global _cached_config, _cached_config_path

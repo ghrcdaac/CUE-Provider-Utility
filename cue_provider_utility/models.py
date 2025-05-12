@@ -1,7 +1,7 @@
 """
 Pydantic models for configuration, API requests/responses, and internal data structures.
 """
-from pydantic import BaseModel, Field, HttpUrl, FilePath, DirectoryPath, field_validator, field_serializer # type: ignore
+from pydantic import BaseModel, Field, HttpUrl, FilePath, DirectoryPath, field_validator, field_serializer 
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
@@ -58,53 +58,53 @@ class GlobalArgs(BaseModel):
 
 # --- API Models (Client-side definitions) ---
 
-class InitiateUploadRequest(BaseModel): # For single file presigned URL request
+class InitiateUploadRequest(BaseModel):
     file_name: str
-    collection: str # Collection short_name
+    collection: str 
     size: int 
-    checksum: str # Base64 SHA256
+    checksum: str 
     file_type: str 
-    collection_path: Optional[str] = None # User's target sub-path within the collection
+    collection_path: Optional[str] = None 
 
-class InitiateUploadResponse(BaseModel): # From backend for single file presigned URL
+class InitiateUploadResponse(BaseModel):
     url: HttpUrl 
     fields: Optional[Dict[str, str]] = None 
-    s3_key: str # The S3 object key the backend has generated for this upload
+    s3_key: str 
     
     @field_serializer('url', when_used='json-unless-none')
     def serialize_url_to_str(self, v: HttpUrl) -> str:
         return str(v)
 
-# NEW: For client to confirm single upload to backend
+
 class ConfirmSingleUploadRequest(BaseModel):
-    s3_key: str # The s3_key received from InitiateUploadResponse
-    file_name: str # Original local filename
-    collection: str # Collection short_name (for backend to re-validate if needed)
+    s3_key: str 
+    file_name: str 
+    collection: str 
     size_bytes: int
-    checksum: str # Base64 SHA256 of the uploaded file
-    file_type: str # MIME type
-    collection_path: Optional[str] = None # User's target sub-path, same as in InitiateUploadRequest
-    s3_etag: Optional[str] = None # Optional: ETag from S3 response, if backend wants to verify
+    checksum: str 
+    file_type: str 
+    collection_path: Optional[str] = None 
+    s3_etag: Optional[str] = None 
 
 
 class MultipartStartRequest(BaseModel): 
-    file_name: str # Original local filename
-    collection: str # Collection short_name
-    upload_target: Optional[str] = None # User's target sub-path within the collection
+    file_name: str 
+    collection: str 
+    upload_target: Optional[str] = None 
     content_type: str 
-    overall_checksum: str # Base64 SHA256 of the entire file
+    overall_checksum: str 
 
 class MultipartStartResponse(BaseModel): 
-    upload_id: str # S3 UploadId
-    s3_key: str    # The S3 object key the backend has generated
+    upload_id: str 
+    s3_key: str   
 
 class MultipartGetPartUrlRequest(BaseModel):
     upload_id: str
     part_number: int
-    file_name: str # This is the s3_key from MultipartStartResponse (as per backend expectation)
-    collection: str # Collection short_name
-    checksum: str # Part's Base64 SHA256
-    content_type: str # Original file's MIME type
+    file_name: str 
+    collection: str 
+    checksum: str 
+    content_type: str 
 
 class MultipartGetPartUrlResponse(BaseModel):
     presigned_url: HttpUrl
@@ -115,26 +115,26 @@ class MultipartGetPartUrlResponse(BaseModel):
 class PartInfo(BaseModel): 
     PartNumber: int
     ETag: str
-    ChecksumSHA256: Optional[str] = None # As per client's MultipartCompleteRequest to backend
+    ChecksumSHA256: Optional[str] = None 
 
 class MultipartCompleteRequest(BaseModel):
     upload_id: str
     parts: List[PartInfo]
-    s3_key: str # The s3_key from MultipartStartResponse
-    file_name: str # Original local filename (sent for backend DB record)
-    collection: str # Collection short_name
-    checksum: str # Overall file's Base64 SHA256 
-    final_file_size: int # Final size of the assembled file in bytes
-    collection_path: Optional[str] = None # User's target sub-path, same as in MultipartStartRequest's upload_target
-    content_type: str # Original file's MIME type (for backend DB record)
+    s3_key: str 
+    file_name: str 
+    collection: str 
+    checksum: str 
+    final_file_size: int 
+    collection_path: Optional[str] = None t
+    content_type: str 
 
 
 class MultipartCompleteResponse(BaseModel): # From backend after successful completion
-    Location: HttpUrl # S3 Location
+    Location: HttpUrl 
     Bucket: str
-    Key: str # This is the s3_key
-    ETag: str # Final ETag of the assembled object
-    # file_id: str # Optional: DB file ID if backend sends it back
+    Key: str 
+    ETag: str 
+  
 
     @field_serializer('Location', when_used='json-unless-none')
     def serialize_url_to_str(self, v: HttpUrl) -> str:
@@ -143,7 +143,7 @@ class MultipartCompleteResponse(BaseModel): # From backend after successful comp
 class MultipartAbortRequest(BaseModel):
     upload_id: str
     s3_key: str 
-    file_name: str # The s3_key (for backend compatibility)
+    file_name: str 
     collection: str
 
 class APIErrorDetail(BaseModel):

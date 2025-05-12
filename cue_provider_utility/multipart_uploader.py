@@ -66,7 +66,7 @@ class UploadPartTask:
         else:
             if not self.error: 
                  self.error = FileProcessingError(f"Part {self.part_number} data is missing for checksum calculation after read attempt.")
-            raise self.error # type: ignore
+            raise self.error 
 
 
 async def _upload_single_part_with_retry(
@@ -195,7 +195,7 @@ async def handle_multipart_upload(
 
     if part_tasks_to_process:
         rich_console.print(f"  Preparing {len(part_tasks_to_process)} parts for {file_path.name}...")
-        # ... (part preparation loop remains the same) ...
+     
         with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=rich_console, transient=True) as prep_progress:
             prep_task = prep_progress.add_task("Reading part data & checksums...", total=len(part_tasks_to_process))
             for part_task_item in part_tasks_to_process:
@@ -234,8 +234,8 @@ async def handle_multipart_upload(
         async def part_worker_wrapper(pt: UploadPartTask): 
             async with semaphore:
                 part_info_result = await _upload_single_part_with_retry(
-                    pt, api_client, config, s3_upload_id, # type: ignore
-                    backend_s3_key, # type: ignore 
+                    pt, api_client, config, s3_upload_id, 
+                    backend_s3_key,  
                     collection, mime_type, progress_bar_instance, overall_task_id_rich
                 )
                 if part_info_result:
@@ -258,9 +258,9 @@ async def handle_multipart_upload(
         logger.error(f"Not all parts uploaded successfully for {file_path.name}. Failed parts: {failed_parts_numbers}")
         rich_console.print(f"[bold red]  Failed to upload all parts for {file_path.name}. Aborting with backend...[/bold red]")
         abort_payload = MultipartAbortRequest(
-            upload_id=s3_upload_id, # type: ignore
-            s3_key=backend_s3_key, # type: ignore 
-            file_name=backend_s3_key, # type: ignore 
+            upload_id=s3_upload_id, 
+            s3_key=backend_s3_key,  
+            file_name=backend_s3_key,  
             collection=collection
         )
         try:
@@ -273,9 +273,9 @@ async def handle_multipart_upload(
     uploaded_parts_info.sort(key=lambda p: p.PartNumber)
     
     complete_payload = MultipartCompleteRequest(
-        upload_id=s3_upload_id, # type: ignore
+        upload_id=s3_upload_id, 
         parts=uploaded_parts_info,
-        s3_key=backend_s3_key, # type: ignore
+        s3_key=backend_s3_key, 
         file_name=file_path.name, # Send original local filename for DB record
         collection=collection,
         checksum=overall_file_checksum_sha256,
@@ -293,9 +293,9 @@ async def handle_multipart_upload(
         logger.error(f"Failed to complete multipart upload with backend for {file_path.name}: {e}. Aborting S3 MPU via backend.")
         rich_console.print(f"[bold red]  Failed to complete multipart upload with backend for {file_path.name}. Aborting S3 MPU via backend...[/bold red]")
         abort_payload_on_failed_complete = MultipartAbortRequest(
-            upload_id=s3_upload_id, # type: ignore
-            s3_key=backend_s3_key, # type: ignore
-            file_name=backend_s3_key, # type: ignore 
+            upload_id=s3_upload_id, 
+            s3_key=backend_s3_key, 
+            file_name=backend_s3_key,  
             collection=collection
         )
         try:
