@@ -125,7 +125,7 @@ class MultipartCompleteRequest(BaseModel):
     collection: str 
     checksum: str 
     final_file_size: int 
-    collection_path: Optional[str] = None t
+    collection_path: Optional[str] = None
     content_type: str 
 
 
