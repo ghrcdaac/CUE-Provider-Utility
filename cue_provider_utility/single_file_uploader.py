@@ -7,7 +7,9 @@ Handles the process for uploading a single file (non-multipart).
 import logging
 from pathlib import Path
 from typing import Optional
-import asyncio 
+import asyncio
+
+import aiofiles 
 
 from .models import AppConfig, GlobalArgs, InitiateUploadRequest, ConfirmSingleUploadRequest, InitiateUploadResponse
 from .exceptions import UploadError, FileProcessingError, APIRequestError
@@ -15,7 +17,6 @@ from .api_client import ApiClient
 from .utils import calculate_sha256_checksum, get_mime_type, format_bytes
 from .logger_setup import rich_console
 from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn, TimeRemainingColumn
-import aiofiles 
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +36,10 @@ async def handle_single_file_upload(
     try:
         rich_console.print(f"  Calculating SHA256 checksum for {file_path.name}...")
         checksum_sha256 = await calculate_sha256_checksum(file_path)
-        logger.info(f"SHA256 for {file_path.name}: {checksum_sha256}")
     except FileProcessingError as e:
-        raise UploadError(f"Checksum calculation failed for {file_path.name}.", original_exception=e)
+        raise UploadError(f"Checksum calculation failed for {file_path.name}: {e}", original_exception=e)
 
-    mime_type = get_mime_type(file_path) 
-    logger.info(f"MIME type for {file_path.name}: {mime_type}")
+    mime_type = await get_mime_type(file_path)
 
     initiate_payload = InitiateUploadRequest(
         file_name=file_path.name,
@@ -51,40 +50,33 @@ async def handle_single_file_upload(
         collection_path=target_sub_path
     )
     
-    presigned_info: Optional[InitiateUploadResponse] = None # Explicit type
+    presigned_info: Optional[InitiateUploadResponse] = None
     for attempt in range(config.retry_attempts + 1):
         try:
-            rich_console.print(f"  Requesting upload URL for {file_path.name} (attempt {attempt + 1}/{config.retry_attempts + 1})...")
+            attempt_msg = f" (attempt {attempt + 1}/{config.retry_attempts + 1})" if attempt > 0 else ""
+            rich_console.print(f"  Requesting upload URL for {file_path.name}{attempt_msg}...")
             presigned_info = await api_client.get_presigned_url_single(initiate_payload)
-            logger.info(f"Received presigned URL info for {file_path.name}. S3 Key: {presigned_info.s3_key}")
             break 
         except APIRequestError as e:
-            logger.warning(f"Attempt {attempt + 1} to get presigned URL for {file_path.name} failed: {e}")
+            logger.warning(f"Attempt {attempt + 1} to get presigned URL failed: {e}")
             if attempt >= config.retry_attempts:
-                raise UploadError(f"Failed to get presigned URL for {file_path.name} after {config.retry_attempts + 1} attempts.", original_exception=e)
-            await asyncio.sleep(2**attempt) 
+                # FIX: Propagate the specific error message from the APIRequestError
+                raise UploadError(f"Failed to get presigned URL for {file_path.name}. Reason: {e}")
+            await asyncio.sleep(2**attempt)
     
     if presigned_info is None: 
-         raise UploadError(f"Failed to obtain presigned URL for {file_path.name} (logic safeguard).")
-
+        raise UploadError(f"Could not obtain presigned URL for {file_path.name} after retries.")
 
     if presigned_info.fields is not None: 
         rich_console.print(f"  Uploading {file_path.name} to S3 (Presigned POST)...")
         try:
             s3_response = await api_client.upload_to_s3_presigned_post(
-                url=str(presigned_info.url), 
-                fields=presigned_info.fields,
-                file_path=file_path,
-                file_name=file_path.name, 
-                content_type=mime_type
+                url=str(presigned_info.url), fields=presigned_info.fields,
+                file_path=file_path, file_name=file_path.name, content_type=mime_type
             )
-            if s3_response.status_code == 204: 
-                s3_etag = s3_response.headers.get("ETag", "").strip('"')
-                logger.info(f"Successfully uploaded {file_path.name} to S3 (POST). ETag: {s3_etag}")
-            else:
-                raise UploadError(f"S3 upload (POST) failed for {file_path.name} with status {s3_response.status_code}.")
+            s3_etag = s3_response.headers.get("ETag", "").strip('"')
         except APIRequestError as e: 
-            raise UploadError(f"S3 upload (POST) failed for {file_path.name}.", original_exception=e)
+            raise UploadError(f"S3 upload failed for {file_path.name}. Reason: {e}")
     else: 
         rich_console.print(f"  Uploading {file_path.name} to S3 (Presigned PUT)...")
         try:
@@ -103,39 +95,20 @@ async def handle_single_file_upload(
                 )
                 progress_bar.update(task_id, completed=file_size, refresh=True)
 
-            if s3_response_put.status_code == 200: 
-                s3_etag = s3_response_put.headers.get("ETag", "").strip('"')
-                logger.info(f"Successfully uploaded {file_path.name} to S3 (PUT). ETag: {s3_etag}")
-            else:
-                raise UploadError(f"S3 upload (PUT) failed for {file_path.name} with status {s3_response_put.status_code}.")
-        except APIRequestError as e:
-            raise UploadError(f"S3 upload (PUT) failed for {file_path.name}.", original_exception=e)
-        except OSError as e:
-            raise FileProcessingError(f"Could not read file {file_path.name} for upload.", original_exception=e)
+            s3_etag = s3_response_put.headers.get("ETag", "").strip('"')
+        except (APIRequestError, OSError) as e:
+            raise UploadError(f"S3 upload failed for {file_path.name}. Reason: {e}")
 
-    # Confirm successful S3 upload with the backend
     confirm_payload = ConfirmSingleUploadRequest(
-        s3_key=presigned_info.s3_key,
-        file_name=file_path.name,
-        collection=collection, 
-        size_bytes=file_size,
-        checksum=checksum_sha256,
-        file_type=mime_type,
-        collection_path=target_sub_path,
-        s3_etag=s3_etag if s3_etag else None
+        s3_key=presigned_info.s3_key, file_name=file_path.name, collection=collection, 
+        size_bytes=file_size, checksum=checksum_sha256, file_type=mime_type,
+        collection_path=target_sub_path, s3_etag=s3_etag if s3_etag else None
     )
     try:
         rich_console.print(f"  Confirming upload of {file_path.name} with backend...")
         await api_client.confirm_single_upload(confirm_payload)
-        logger.info(f"Backend confirmation successful for {file_path.name} (S3 Key: {presigned_info.s3_key}).")
         rich_console.print(f"[green]  Successfully uploaded and confirmed {file_path.name}.[/green]")
     except APIRequestError as e:
         logger.error(f"Backend confirmation failed for {file_path.name} (S3 Key: {presigned_info.s3_key}): {e}")
-        raise UploadError(
-            f"File {file_path.name} uploaded to S3, but backend confirmation failed: {e}. "
-            f"S3 Key: {presigned_info.s3_key}. Please report this issue.",
-            original_exception=e
-        )
-
-    logger.info(f"Single file upload process completed for {file_path.name}.")
-
+        # FIX: Propagate the specific error message
+        raise UploadError(f"Backend confirmation failed. Reason: {e}")
