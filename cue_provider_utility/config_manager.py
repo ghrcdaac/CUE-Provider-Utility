@@ -1,3 +1,6 @@
+# In cue_provider_utility/config_manager.py
+# (This is the complete updated file content)
+
 """
 Manages the application's configuration file (config.toml).
 Handles loading, saving, validation, and providing access to configuration settings.
@@ -41,21 +44,18 @@ def ensure_config_exists(config_path_override: Optional[Path] = None) -> None:
 def load_config(config_file_path: Path) -> AppConfig:
     """Loads configuration from the TOML file and validates it."""
     if not config_file_path.exists():
-        # This case should ideally be handled by ensure_config_exists before calling load_config directly
-        # However, if called directly and file is missing, create with defaults.
         logger.warning(f"Config file {config_file_path} not found during load. Creating with defaults.")
-        ensure_config_exists(config_file_path) # This will create and save a default one
+        ensure_config_exists(config_file_path)
 
     try:
         with open(config_file_path, "r", encoding="utf-8") as f:
             data = toml.load(f)
         
-        # Pydantic will validate and fill defaults for missing fields from the loaded data
         return AppConfig(**data)
     except toml.TomlDecodeError as e:
         logger.error(f"Error decoding TOML from {config_file_path}: {e}")
         raise ConfigError(f"Invalid TOML format in {config_file_path}.", original_exception=e)
-    except Exception as e: # Catches Pydantic ValidationError and others
+    except Exception as e:
         logger.error(f"Error loading or validating configuration from {config_file_path}: {e}")
         raise ConfigError(f"Could not load or validate configuration: {e}", original_exception=e)
 
@@ -65,12 +65,7 @@ def save_config(config_data: AppConfig, config_file_path: Path) -> None:
         config_dir = config_file_path.parent
         config_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use mode='json' to ensure Pydantic types like HttpUrl and Path are serialized to plain strings.
-        # Pydantic v2: model_dump converts Path to string by default in json mode.
-        # HttpUrl is also converted to string.
         config_dict = config_data.model_dump(mode='json', exclude_defaults=False, exclude_none=False)
-        # exclude_defaults=False and exclude_none=False ensures a full config is written out.
-        # Adjust if you prefer a more minimal TOML for overridden values only.
 
         with open(config_file_path, "w", encoding="utf-8") as f:
             toml.dump(config_dict, f)
@@ -90,14 +85,11 @@ def get_config(config_path_override: Optional[Path] = None) -> AppConfig:
     global _cached_config, _cached_config_path
     target_config_path = get_config_file_path(config_path_override)
 
-    # Always ensure config exists before attempting to load or use cache.
-    # This handles the case where the file might have been deleted since last run.
     ensure_config_exists(target_config_path)
 
     if _cached_config is not None and _cached_config_path == target_config_path:
         return _cached_config
     
-    # ensure_config_exists would have created it if it was missing.
     config = load_config(target_config_path)
     
     _cached_config = config
@@ -107,17 +99,16 @@ def get_config(config_path_override: Optional[Path] = None) -> AppConfig:
 def save_config_value(key: str, value: Any, config_path_override: Optional[Path] = None) -> None:
     """Saves a specific key-value pair to the configuration."""
     config_file_to_use = get_config_file_path(config_path_override)
-    current_config = get_config(config_file_to_use) # Load current config using the determined path
+    current_config = get_config(config_file_to_use)
     
-    # Handle nested models like 'environments'
     if '.' in key: 
         parent_key, child_key = key.split('.', 1)
         parent_obj = getattr(current_config, parent_key, None)
-        if parent_obj is not None and isinstance(parent_obj, object): # Check if parent_obj is a Pydantic model or dict
+        if parent_obj is not None and isinstance(parent_obj, object):
             if hasattr(parent_obj, child_key):
-                 setattr(parent_obj, child_key, value)
-            elif isinstance(parent_obj, dict) and child_key in parent_obj: # For plain dicts (less likely with Pydantic)
-                 parent_obj[child_key] = value
+                setattr(parent_obj, child_key, value)
+            elif isinstance(parent_obj, dict) and child_key in parent_obj:
+                parent_obj[child_key] = value
             else:
                 raise ConfigError(f"Invalid configuration key: {key}. Child key '{child_key}' not found in '{parent_key}'.")
         else:
@@ -129,15 +120,15 @@ def save_config_value(key: str, value: Any, config_path_override: Optional[Path]
 
     save_config(current_config, config_file_to_use)
     
-    # Invalidate cache as we've changed the underlying file
     global _cached_config, _cached_config_path
     _cached_config = None
-    _cached_config_path = None # Ensure it reloads next time if path is same or different
+    _cached_config_path = None
 
 
-def save_api_token_to_config(token: Optional[str], config_path_override: Optional[Path] = None) -> None:
-    """Specifically saves or removes the API token in the configuration."""
-    save_config_value("api_token", token, config_path_override)
+def save_api_key_to_config(key: Optional[str], config_path_override: Optional[Path] = None) -> None:
+    """Specifically saves or removes the API key in the configuration."""
+    # This now saves the 'api_key' field, which matches the updated AppConfig model.
+    save_config_value("api_key", key, config_path_override)
 
 def display_config_value_for_edit(prompt_text: str, current_value: Any) -> str:
     """Formats the prompt text for editing a config value, showing current value."""
@@ -149,7 +140,6 @@ def display_config_value_for_edit(prompt_text: str, current_value: Any) -> str:
 def get_user_ignore_patterns(config_path_override: Optional[Path] = None) -> List[str]:
     """Retrieves the list of user-defined ignore patterns from config."""
     config = get_config(config_path_override)
-    # Pydantic ensures user_ignored_patterns is a list, default_factory handles if not in toml
     return cast(List[str], config.user_ignored_patterns)
 
 def set_user_ignore_patterns(patterns: List[str], config_path_override: Optional[Path] = None) -> None:

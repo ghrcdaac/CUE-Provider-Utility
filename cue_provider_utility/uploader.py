@@ -1,3 +1,6 @@
+# In cue_provider_utility/uploader.py
+# (This is the complete updated file content)
+
 """
 Core upload orchestrator.
 Determines upload strategy (single, multipart, folder) and delegates processing.
@@ -22,7 +25,7 @@ async def process_upload(
     source_path: Path,
     collection: str,
     target_sub_path: Optional[str],
-    auth_token: str,
+    api_key: str, # Variable name changed
     config: AppConfig,
     global_args: GlobalArgs,
     file_concurrency: int,
@@ -39,7 +42,8 @@ async def process_upload(
     except AttributeError: 
         raise ConfigError(f"Environment URL for '{selected_env_name}' not found.")
 
-    api_client = ApiClient(config=config, global_args=global_args, auth_token=auth_token)
+    # Pass the api_key to the ApiClient
+    api_client = ApiClient(config=config, global_args=global_args, api_key=api_key)
     
     try:
         if not source_path.exists():
@@ -66,13 +70,12 @@ async def process_upload(
                 await handle_multipart_upload(
                     file_path=source_path, file_size=file_size, collection=collection,
                     target_sub_path=target_sub_path, api_client=api_client, config=config,
-                    global_args=global_args, part_concurrency=part_concurrency
+                    part_concurrency=part_concurrency
                 )
             else:
                 await handle_single_file_upload( 
                     file_path=source_path, file_size=file_size, collection=collection,
-                    target_sub_path=target_sub_path, api_client=api_client, config=config,
-                    global_args=global_args
+                    target_sub_path=target_sub_path, api_client=api_client, config=config
                 )
         else:
             raise FileProcessingError(f"Source path is not a file or directory: {source_path}")

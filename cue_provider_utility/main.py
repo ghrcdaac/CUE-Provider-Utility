@@ -1,3 +1,6 @@
+# In cue_provider_utility/main.py
+# (This is the complete updated file content)
+
 """
 Main entry point for the CUE Provider Utility CLI.
 Defines the main Click command group and registers subcommands.
@@ -14,10 +17,10 @@ from .config_manager import (
     get_config_file_path,
     display_config_value_for_edit,
     save_config_value,
-    save_api_token_to_config,
+    save_api_key_to_config, # Renamed function
 )
 from .logger_setup import setup_logging, get_log_file_path, view_log_file
-from .auth_handler import get_auth_token
+from .auth_handler import get_api_key # Renamed function
 from .ignored_files_handler import (
     add_user_ignore_pattern,
     remove_user_ignore_pattern,
@@ -26,7 +29,7 @@ from .ignored_files_handler import (
 )
 from .uploader import process_upload 
 from .models import GlobalArgs 
-from .exceptions import CUEProviderError, UploadCancelledError
+from .exceptions import CUEProviderError, UploadCancelledError, AuthError
 
 
 # Ensure configuration and log directories exist on import/startup
@@ -38,10 +41,11 @@ setup_logging(log_path=LOG_FILE_PATH)
 @click.group(context_settings=dict(help_option_names=['-h', '--help']))
 @click.version_option(package_name='CUE-Provider-Utility')
 @click.option(
-    '-t', '--token',
+    '-t', '--token', 'api_key_cli', # Changed variable name to 'api_key_cli'
     metavar='TEXT',
     envvar="CUE_UPLOAD_API_TOKEN",
-    help="Authentication token (JWT). Overrides token in config file or .netrc."
+    # Help text updated to reflect API key instead of JWT
+    help="Authentication API key. Overrides key in config file or environment variable."
 )
 @click.option(
     '--env',
@@ -71,7 +75,7 @@ setup_logging(log_path=LOG_FILE_PATH)
 @click.pass_context
 def cli_app(
     ctx: click.Context,
-    token: Optional[str], 
+    api_key_cli: Optional[str], # Variable name changed
     env: Optional[str], 
     config_path_override: Optional[Path], 
     log_file_override: Optional[Path], 
@@ -81,8 +85,9 @@ def cli_app(
     """
     CUE Provider Utility: CLI for uploading files and folders to CUE.
     """
+    # Pass the new variable name to the GlobalArgs model
     ctx.obj = GlobalArgs(
-        token_cli=token,
+        api_key_cli=api_key_cli,
         env_cli=env,
         config_path_override=config_path_override,
         log_file_override=log_file_override,
@@ -170,13 +175,10 @@ def upload_command(
         click.echo(f"Target Path: {target_path}")
     
     try:
-        selected_env = global_args.env_cli or config.default_env
-        selected_env_url_obj = getattr(config.environments, selected_env, None)
-        selected_env_url_str = str(selected_env_url_obj) if selected_env_url_obj else None
-
-        auth_token = get_auth_token(global_args.token_cli, config, selected_env_url_str)
-        if not auth_token:
-            click.secho("Authentication token not found. Please configure using 'cue-upload configure --token' or use the --token option.", fg="red", err=True)
+        # Call the new `get_api_key` function
+        api_key = get_api_key(global_args.api_key_cli, config)
+        if not api_key:
+            click.secho("API Key not found. Please configure using 'cue-upload configure --api-key' or use the --token option.", fg="red", err=True)
             sys.exit(1)
 
         async def run_upload():
@@ -184,31 +186,26 @@ def upload_command(
                 source_path=upload_path,
                 collection=collection,
                 target_sub_path=target_path,
-                auth_token=auth_token,
+                api_key=api_key, # Pass the API key to the uploader
                 config=config,
                 global_args=global_args,
                 file_concurrency=final_file_concurrency,
                 part_concurrency=final_part_concurrency,
                 auto_approve=auto_approve
             )
-            # This message is now only printed if the process completes without any exceptions.
             click.secho("\nUpload process finished successfully.", fg="green")
 
         asyncio.run(run_upload())
     
-    # Catch the specific exceptions for better user feedback
     except UploadCancelledError as e:
-        # Handle user cancellation gracefully
         click.secho(f"\n{e}", fg="yellow")
         sys.exit(0)
-    except CUEProviderError as e:
-        # Display the detailed error message propagated from the API client or other utils
+    except (CUEProviderError, AuthError) as e:
         click.secho(f"\nError: {e}", fg="red", err=True)
         if global_args.verbose_level < 2:
             click.echo("Hint: For more details, run the command with the -vv flag.", err=True)
         sys.exit(1)
     except Exception as e:
-        # Catch any other truly unexpected errors
         click.secho(f"\nAn unexpected critical error occurred: {e}", fg="red", err=True)
         import logging
         logging.exception("Unexpected critical error in upload command")
@@ -216,9 +213,10 @@ def upload_command(
 
 
 @cli_app.command("configure")
-@click.option('--token', 'set_token_only', is_flag=True, help="Only prompt for and save the API token.")
+# Changed the option name for the user's benefit
+@click.option('--api-key', 'set_key_only', is_flag=True, help="Only prompt for and save the API key.")
 @click.pass_context
-def configure_command(ctx: click.Context, set_token_only: bool):
+def configure_command(ctx: click.Context, set_key_only: bool):
     """Interactively configures CUE Provider Utility settings."""
     global_args: GlobalArgs = ctx.obj
     config_file = get_config_file_path(global_args.config_path_override)
@@ -226,13 +224,14 @@ def configure_command(ctx: click.Context, set_token_only: bool):
 
     current_config = get_config(global_args.config_path_override)
 
-    if set_token_only:
-        new_token = click.prompt("Enter API Token (leave blank to keep current)", hide_input=True, default="", show_default=False)
-        if new_token: 
-            save_api_token_to_config(new_token, global_args.config_path_override)
-            click.secho("API Token updated.", fg="green")
+    if set_key_only:
+        # Updated prompt and save function
+        new_key = click.prompt("Enter API Key (leave blank to keep current)", hide_input=True, default="", show_default=False)
+        if new_key: 
+            save_api_key_to_config(new_key, global_args.config_path_override)
+            click.secho("API Key updated.", fg="green")
         else:
-            click.echo("API Token not changed.")
+            click.echo("API Key not changed.")
         return
     
     settings_to_configure = {
@@ -281,16 +280,17 @@ def configure_command(ctx: click.Context, set_token_only: bool):
     else:
         click.echo("No configuration values were changed.")
 
-    if not set_token_only:
-        new_token = click.prompt("Enter API Token (press Enter to keep current, or type 'DELETE' to remove)", default="", show_default=False, hide_input=True)
-        if new_token.upper() == 'DELETE':
-            save_api_token_to_config(None, global_args.config_path_override) 
-            click.secho("API Token removed from config.", fg="yellow")
-        elif new_token: 
-            save_api_token_to_config(new_token, global_args.config_path_override)
-            click.secho("API Token updated.", fg="green")
+    if not set_key_only: # Changed from set_token_only
+        # Updated prompt and save function
+        new_key = click.prompt("Enter API Key (press Enter to keep current, or type 'DELETE' to remove)", default="", show_default=False, hide_input=True)
+        if new_key.upper() == 'DELETE':
+            save_api_key_to_config(None, global_args.config_path_override)
+            click.secho("API Key removed from config.", fg="yellow")
+        elif new_key: 
+            save_api_key_to_config(new_key, global_args.config_path_override)
+            click.secho("API Key updated.", fg="green")
         else: 
-            click.echo("API Token not changed.")
+            click.echo("API Key not changed.")
 
 
 @cli_app.group("ignore")

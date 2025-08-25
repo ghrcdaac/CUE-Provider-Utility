@@ -1,17 +1,21 @@
+# In cue_provider_utility/single_file_uploader.py
+# (This is the complete updated file content)
+
 """
 Handles the process for uploading a single file (non-multipart).
-1. Gets a presigned URL from the backend (which includes an s3_key).
-2. Uploads the file to S3 using the presigned URL.
-3. Confirms the successful S3 upload with the backend.
+1. Calls the /v2/upload/prepare-single endpoint.
+2. Uploads the file to S3 using the presigned PUT URL.
+3. Confirms the successful S3 upload with the /v2/upload/complete-single endpoint.
 """
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 import asyncio
 
 import aiofiles 
+import httpx
 
-from .models import AppConfig, GlobalArgs, InitiateUploadRequest, ConfirmSingleUploadRequest, InitiateUploadResponse
+from .models import AppConfig, PrepareSingleRequest, PrepareSingleResponse, CompleteSingleRequest, UploadCompletionResponse
 from .exceptions import UploadError, FileProcessingError, APIRequestError
 from .api_client import ApiClient
 from .utils import calculate_sha256_checksum, get_mime_type, format_bytes
@@ -20,95 +24,95 @@ from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn, 
 
 logger = logging.getLogger(__name__)
 
+# --- CHANGE: Added optional progress and task_id parameters ---
 async def handle_single_file_upload( 
     file_path: Path,
     file_size: int,
-    collection: str, 
-    target_sub_path: Optional[str], 
+    collection: str,
+    target_sub_path: Optional[str],
     api_client: ApiClient,
     config: AppConfig,
-    global_args: GlobalArgs
+    progress: Optional[Progress] = None,
+    overall_folder_task_id: Optional[Any] = None
 ):
-    rich_console.print(f"[info]Preparing single file upload for: [bold cyan]{file_path.name}[/bold cyan] ({format_bytes(file_size)})")
+    """
+    Performs a complete single file upload transaction using the V2 API.
+    """
+    # Only print this if it's NOT part of a folder upload
+    if progress is None:
+        rich_console.print(f"[info]Preparing single file upload for: [bold cyan]{file_path.name}[/bold cyan] ({format_bytes(file_size)})")
 
-    s3_etag: Optional[str] = None 
-
+    s3_etag: Optional[str] = None
+    
     try:
         rich_console.print(f"  Calculating SHA256 checksum for {file_path.name}...")
         checksum_sha256 = await calculate_sha256_checksum(file_path)
+        mime_type = await get_mime_type(file_path)
     except FileProcessingError as e:
-        raise UploadError(f"Checksum calculation failed for {file_path.name}: {e}", original_exception=e)
+        raise UploadError(f"File preparation failed for {file_path.name}: {e}", original_exception=e)
 
-    mime_type = await get_mime_type(file_path)
-
-    initiate_payload = InitiateUploadRequest(
-        file_name=file_path.name,
-        collection=collection,
-        size=file_size,
-        checksum=checksum_sha256,
-        file_type=mime_type,
-        collection_path=target_sub_path
+    prepare_payload = PrepareSingleRequest(
+        file_name=file_path.name, collection_name=collection,
+        file_size_bytes=file_size, checksum=checksum_sha256,
+        content_type=mime_type, collection_path=target_sub_path
     )
     
-    presigned_info: Optional[InitiateUploadResponse] = None
+    prepare_response: Optional[PrepareSingleResponse] = None
     for attempt in range(config.retry_attempts + 1):
         try:
             attempt_msg = f" (attempt {attempt + 1}/{config.retry_attempts + 1})" if attempt > 0 else ""
             rich_console.print(f"  Requesting upload URL for {file_path.name}{attempt_msg}...")
-            presigned_info = await api_client.get_presigned_url_single(initiate_payload)
-            break 
+            prepare_response = await api_client.prepare_single_upload(prepare_payload)
+            break
         except APIRequestError as e:
-            logger.warning(f"Attempt {attempt + 1} to get presigned URL failed: {e}")
+            logger.warning(f"Attempt {attempt + 1} to get prepare-single response failed: {str(e)}")
             if attempt >= config.retry_attempts:
-                # FIX: Propagate the specific error message from the APIRequestError
-                raise UploadError(f"Failed to get presigned URL for {file_path.name}. Reason: {e}")
+                raise UploadError(f"Failed to prepare single upload for {file_path.name}. Reason: {str(e)}")
             await asyncio.sleep(2**attempt)
     
-    if presigned_info is None: 
-        raise UploadError(f"Could not obtain presigned URL for {file_path.name} after retries.")
+    if prepare_response is None: 
+        raise UploadError(f"Could not prepare single file upload for {file_path.name} after retries.")
 
-    if presigned_info.fields is not None: 
-        rich_console.print(f"  Uploading {file_path.name} to S3 (Presigned POST)...")
-        try:
-            s3_response = await api_client.upload_to_s3_presigned_post(
-                url=str(presigned_info.url), fields=presigned_info.fields,
-                file_path=file_path, file_name=file_path.name, content_type=mime_type
-            )
-            s3_etag = s3_response.headers.get("ETag", "").strip('"')
-        except APIRequestError as e: 
-            raise UploadError(f"S3 upload failed for {file_path.name}. Reason: {e}")
-    else: 
-        rich_console.print(f"  Uploading {file_path.name} to S3 (Presigned PUT)...")
-        try:
-            async with aiofiles.open(file_path, 'rb') as f:
-                file_data = await f.read()
-            
-            with Progress(
-                TextColumn("[progress.description]{task.description}"), BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-                TransferSpeedColumn(), TimeRemainingColumn(),
-                console=rich_console, transient=True
-            ) as progress_bar:
-                task_id = progress_bar.add_task(f"  Uploading {file_path.name}", total=file_size)
-                s3_response_put = await api_client.upload_part_to_s3_presigned_put( 
-                    url=str(presigned_info.url), part_data=file_data, content_length=file_size
-                )
-                progress_bar.update(task_id, completed=file_size, refresh=True)
-
-            s3_etag = s3_response_put.headers.get("ETag", "").strip('"')
-        except (APIRequestError, OSError) as e:
-            raise UploadError(f"S3 upload failed for {file_path.name}. Reason: {e}")
-
-    confirm_payload = ConfirmSingleUploadRequest(
-        s3_key=presigned_info.s3_key, file_name=file_path.name, collection=collection, 
-        size_bytes=file_size, checksum=checksum_sha256, file_type=mime_type,
-        collection_path=target_sub_path, s3_etag=s3_etag if s3_etag else None
-    )
+    rich_console.print(f"  Uploading {file_path.name} to S3...")
     try:
-        rich_console.print(f"  Confirming upload of {file_path.name} with backend...")
-        await api_client.confirm_single_upload(confirm_payload)
-        rich_console.print(f"[green]  Successfully uploaded and confirmed {file_path.name}.[/green]")
+        async with aiofiles.open(file_path, 'rb') as f:
+            file_data = await f.read()
+        
+        s3_headers = {'Content-Type': mime_type, 'Content-Length': str(file_size)}
+
+        # --- CHANGE: Logic to handle both standalone and folder progress bars ---
+        async with httpx.AsyncClient(timeout=None) as client:
+            if progress is None:
+                # Standalone mode: create its own progress bar
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"), BarColumn(),
+                    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+                    TransferSpeedColumn(), TimeRemainingColumn(),
+                    console=rich_console, transient=True
+                ) as progress_bar:
+                    task_id = progress_bar.add_task(f"  Uploading {file_path.name}", total=file_size)
+                    s3_response_put = await client.put(url=str(prepare_response.presigned_url), content=file_data, headers=s3_headers)
+                    progress_bar.update(task_id, completed=file_size, refresh=True)
+            else:
+                # Folder mode: use the provided progress bar
+                s3_response_put = await client.put(url=str(prepare_response.presigned_url), content=file_data, headers=s3_headers)
+
+        s3_response_put.raise_for_status()
+        s3_etag = s3_response_put.headers.get("ETag", "").strip('"')
+    except (httpx.HTTPError, OSError) as e:
+        raise UploadError(f"S3 upload failed for {file_path.name}. Reason: {e}")
+
+    rich_console.print(f"  Confirming upload of {file_path.name} with backend...")
+    complete_payload = CompleteSingleRequest(
+        file_id=prepare_response.file_id, s3_etag=s3_etag,
+        collection_name=collection, file_name=file_path.name,
+        file_size_bytes=file_size, checksum=checksum_sha256,
+        collection_path=target_sub_path, content_type=mime_type
+    )
+    
+    try:
+        completion_response = await api_client.complete_single_upload(payload=complete_payload)
+        rich_console.print(f"[green]  Successfully uploaded and confirmed {file_path.name}. Status: {completion_response.status}[/green]")
     except APIRequestError as e:
-        logger.error(f"Backend confirmation failed for {file_path.name} (S3 Key: {presigned_info.s3_key}): {e}")
-        # FIX: Propagate the specific error message
-        raise UploadError(f"Backend confirmation failed. Reason: {e}")
+        logger.error(f"Backend confirmation failed for {file_path.name} (File ID: {prepare_response.file_id}): {e}")
+        raise UploadError(f"Backend confirmation failed for {file_path.name}. Reason: {str(e)}")

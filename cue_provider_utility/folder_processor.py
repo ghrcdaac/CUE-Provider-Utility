@@ -1,3 +1,6 @@
+# In cue_provider_utility/folder_processor.py
+# (This is the complete updated file content)
+
 """
 Handles the processing of folder uploads.
 Scans directories, filters files, manages concurrent uploads of individual files.
@@ -80,7 +83,6 @@ async def _upload_one_file_from_folder(
     base_target_sub_path: Optional[str], 
     api_client: ApiClient,
     config: AppConfig,
-    global_args: GlobalArgs,
     part_concurrency: int,
     progress: Progress, 
     overall_folder_task_id: Any
@@ -103,14 +105,16 @@ async def _upload_one_file_from_folder(
             await handle_multipart_upload(
                 file_path=file_task.local_path, file_size=file_task.size,
                 collection=collection, target_sub_path=effective_api_target_sub_path, 
-                api_client=api_client, config=config, global_args=global_args,
-                part_concurrency=part_concurrency
+                api_client=api_client, config=config,
+                part_concurrency=part_concurrency,
+                progress=progress, overall_folder_task_id=overall_folder_task_id
             )
         else:
             await handle_single_file_upload(
                 file_path=file_task.local_path, file_size=file_task.size,
                 collection=collection, target_sub_path=effective_api_target_sub_path, 
-                api_client=api_client, config=config, global_args=global_args
+                api_client=api_client, config=config,
+                progress=progress, overall_folder_task_id=overall_folder_task_id
             )
         file_task.status = "success"
 
@@ -125,6 +129,7 @@ async def _upload_one_file_from_folder(
         file_task.error_message = f"An unexpected critical error occurred: {e}"
         rich_console.print(f"[bold red]CRITICAL ERROR during upload of {file_task.relative_path}: {e}[/bold red]")
     finally:
+        # Progress for the overall folder is advanced here, regardless of success or failure.
         progress.update(overall_folder_task_id, advance=1)
 
 
@@ -156,13 +161,13 @@ async def process_folder_upload(
         if num_files > 10:
             rich_console.print(f"  ...and {num_files - 10} more file(s).")
         
-        # Raise a specific cancellation error to be handled by the main command.
         if not click.confirm("\nProceed with upload?", default=True):
             raise UploadCancelledError("Upload cancelled by user.")
 
     semaphore = asyncio.Semaphore(file_concurrency)
     async_tasks: List[asyncio.Task] = [] 
     
+    # This is the single, top-level Progress bar
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -177,7 +182,7 @@ async def process_folder_upload(
                 await _upload_one_file_from_folder(
                     file_task=file_to_upload_item, collection=collection,
                     base_target_sub_path=target_sub_path, api_client=api_client, config=config,
-                    global_args=global_args, part_concurrency=part_concurrency,
+                    part_concurrency=part_concurrency,
                     progress=progress, overall_folder_task_id=folder_task_id
                 )
 

@@ -1,15 +1,15 @@
-"""
-Pydantic models for configuration, API requests/responses, and internal data structures.
-"""
-from pydantic import BaseModel, Field, HttpUrl, FilePath, DirectoryPath, field_validator, field_serializer 
-from typing import List, Optional, Dict, Any
+# In cue_provider_utility/models.py
+# (This is the complete updated file content)
 
+from pydantic import BaseModel, Field, HttpUrl, FilePath, DirectoryPath, field_validator, field_serializer
+from typing import List, Optional, Dict, Any
+from uuid import UUID
 from pathlib import Path
 
 # --- Configuration Models ---
 
 class EnvironmentURLs(BaseModel):
-    prod: HttpUrl = Field(default="https://upload.earthdata.nasa.gov/api") 
+    prod: HttpUrl = Field(default="https://upload.earthdata.nasa.gov/api")
     uat: HttpUrl = Field(default="https://upload.uat.earthdata.nasa.gov/api")
     sit: HttpUrl = Field(default="https://upload.sit.earthdata.nasa.gov/api")
     local: HttpUrl = Field(default="http://localhost:8000")
@@ -19,11 +19,12 @@ class EnvironmentURLs(BaseModel):
         return str(v)
 
 class AppConfig(BaseModel):
-    api_token: Optional[str] = None
+    # Field changed from 'api_token' to 'api_key' to match the new authentication scheme
+    api_key: Optional[str] = None
     default_env: str = Field(default="prod", pattern=r"^(prod|uat|sit|local)$")
     
     multipart_threshold_gb: int = Field(default=1, gt=0)
-    multipart_chunk_size_mb: int = Field(default=256, gt=0) 
+    multipart_chunk_size_mb: int = Field(default=256, gt=0)
     
     # Enforce a max retry limit of 5.
     retry_attempts: int = Field(default=3, ge=0, le=5)
@@ -48,7 +49,7 @@ class AppConfig(BaseModel):
     # If populated, only MIME types on this list will be allowed (after checking against the deny list).
     allowed_mime_types: Optional[List[str]] = None
 
-    @field_validator('log_file_directory', mode='before') 
+    @field_validator('log_file_directory', mode='before')
     def _validate_log_dir(cls, value: Any) -> Path:
         return Path(value).expanduser()
     
@@ -61,61 +62,70 @@ class AppConfig(BaseModel):
 
 # --- CLI Context Object ---
 class GlobalArgs(BaseModel):
-    token_cli: Optional[str] = None
+    # Field changed from 'token_cli' to 'api_key_cli' to match the new authentication scheme
+    api_key_cli: Optional[str] = None
     env_cli: Optional[str] = None
     config_path_override: Optional[Path] = None
     log_file_override: Optional[Path] = None
     verbose_level: int = 0
     quiet_mode: bool = False
-    config: AppConfig = Field(default_factory=AppConfig) 
+    config: AppConfig = Field(default_factory=AppConfig)
 
 # --- API Models (Client-side definitions) ---
+# The following models are completely new for the V2 API.
+# The old models (InitiateUploadRequest, ConfirmSingleUploadRequest, etc.) are removed.
 
-class InitiateUploadRequest(BaseModel):
+class PrepareSingleRequest(BaseModel):
+    collection_name: str
     file_name: str
-    collection: str 
-    size: int 
-    checksum: str 
-    file_type: str 
-    collection_path: Optional[str] = None 
+    file_size_bytes: int
+    checksum: str
+    collection_path: Optional[str] = None
+    content_type: str
 
-class InitiateUploadResponse(BaseModel):
-    url: HttpUrl 
-    fields: Optional[Dict[str, str]] = None 
-    s3_key: str 
-    
-    @field_serializer('url', when_used='json-unless-none')
+class PrepareSingleResponse(BaseModel):
+    file_id: str
+    presigned_url: HttpUrl
+    s3_key: str
+    @field_serializer('presigned_url', when_used='json-unless-none')
     def serialize_url_to_str(self, v: HttpUrl) -> str:
         return str(v)
 
-class ConfirmSingleUploadRequest(BaseModel):
-    s3_key: str 
-    file_name: str 
-    collection: str 
-    size_bytes: int
-    checksum: str 
-    file_type: str 
-    collection_path: Optional[str] = None 
-    s3_etag: Optional[str] = None 
+class CompleteSingleRequest(BaseModel):
+    """A single, consolidated model for the 'complete' step."""
+    file_id: UUID
+    collection_name: str
+    file_name: str
+    file_size_bytes: int
+    checksum: str
+    collection_path: Optional[str] = None
+    content_type: str
+    s3_etag: str
 
-class MultipartStartRequest(BaseModel): 
-    file_name: str 
-    collection: str 
-    upload_target: Optional[str] = None 
-    content_type: str 
-    overall_checksum: str 
+class S3CompletionData(BaseModel):
+    file_id: str
+    s3_etag: str
 
-class MultipartStartResponse(BaseModel): 
-    upload_id: str 
-    s3_key: str  
+class UploadCompletionResponse(BaseModel):
+    file_id: str
+    status: str
+    message: str
+
+class MultipartStartRequest(BaseModel):
+    collection_name: str
+    file_name: str
+    content_type: str
+    collection_path: Optional[str] = None
+
+class MultipartStartResponse(BaseModel):
+    file_id: str
+    s3_key: str
+    upload_id: str
 
 class MultipartGetPartUrlRequest(BaseModel):
+    s3_key: str
     upload_id: str
     part_number: int
-    file_name: str 
-    collection: str 
-    checksum: str 
-    content_type: str 
 
 class MultipartGetPartUrlResponse(BaseModel):
     presigned_url: HttpUrl
@@ -123,37 +133,24 @@ class MultipartGetPartUrlResponse(BaseModel):
     def serialize_url_to_str(self, v: HttpUrl) -> str:
         return str(v)
 
-class PartInfo(BaseModel): 
+class PartInfo(BaseModel):
     PartNumber: int
     ETag: str
-    ChecksumSHA256: Optional[str] = None 
 
 class MultipartCompleteRequest(BaseModel):
+    s3_key: str
     upload_id: str
     parts: List[PartInfo]
-    s3_key: str 
-    file_name: str 
-    collection: str 
-    checksum: str 
-    final_file_size: int 
+    file_name: str
+    collection_name: str
     collection_path: Optional[str] = None
-    content_type: str 
-
-class MultipartCompleteResponse(BaseModel):
-    Location: HttpUrl 
-    Bucket: str
-    Key: str 
-    ETag: str 
-    
-    @field_serializer('Location', when_used='json-unless-none')
-    def serialize_url_to_str(self, v: HttpUrl) -> str:
-        return str(v)
+    content_type: str
+    checksum: str
+    final_file_size: int
 
 class MultipartAbortRequest(BaseModel):
+    s3_key: str
     upload_id: str
-    s3_key: str 
-    file_name: str 
-    collection: str
 
 class APIErrorDetail(BaseModel):
     message: str
