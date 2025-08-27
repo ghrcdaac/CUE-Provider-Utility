@@ -52,7 +52,7 @@ class UploadPartTask:
 
 async def _upload_single_part_with_retry(
     part_task: UploadPartTask, api_client: ApiClient, config: AppConfig,
-    s3_upload_id: str, backend_s3_key: str,
+    s3_upload_id: str, file_id: str,
     progress: Progress, overall_task_id: Any
 ) -> Optional[PartInfo]:
     if part_task.data is None:
@@ -61,7 +61,7 @@ async def _upload_single_part_with_retry(
     for attempt in range(config.retry_attempts + 1):
         try:
             get_url_payload = MultipartGetPartUrlRequest(
-                s3_key=backend_s3_key,
+                file_id=file_id,
                 upload_id=s3_upload_id,
                 part_number=part_task.part_number
             )
@@ -125,7 +125,8 @@ async def handle_multipart_upload(
     try:
         rich_console.print(f"  Initiating multipart upload with backend...")
         start_response = await api_client.start_multipart(start_payload)
-        s3_upload_id, backend_s3_key = start_response.upload_id, start_response.s3_key
+        s3_upload_id = start_response.upload_id
+        file_id = start_response.file_id
     except APIRequestError as e:
         raise UploadError(f"Failed to initiate multipart upload. Reason: {str(e)}")
 
@@ -150,7 +151,7 @@ async def handle_multipart_upload(
         async def part_worker_wrapper(pt: UploadPartTask):
             async with semaphore:
                 part_info_result = await _upload_single_part_with_retry(
-                    pt, api_client, config, s3_upload_id, backend_s3_key,
+                    pt, api_client, config, s3_upload_id, str(file_id),
                     progress_manager, task_id
                 )
                 if part_info_result:
@@ -163,7 +164,6 @@ async def handle_multipart_upload(
             progress_manager.update(task_id, completed=1)
 
     if progress is None:
-        # Standalone mode: create and manage its own Progress context
         with Progress(
             SpinnerColumn(), TextColumn("[bold cyan]{task.description}"), BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
@@ -171,7 +171,6 @@ async def handle_multipart_upload(
         ) as standalone_progress:
             await run_uploads(standalone_progress)
     else:
-        # Folder mode: use the provided progress object
         await run_uploads(progress)
 
     if len(uploaded_parts_info) != len(part_tasks_to_process):
@@ -179,7 +178,7 @@ async def handle_multipart_upload(
         first_error = next((pt.error for pt in part_tasks_to_process if pt.error is not None), "Unknown error")
         logger.error(f"Not all parts uploaded successfully for {file_path.name}. Failed parts: {failed_parts_numbers}")
         rich_console.print(f"[bold red]  Failed to upload all parts. Aborting with backend...[/bold red]")
-        abort_payload = MultipartAbortRequest(upload_id=s3_upload_id, s3_key=backend_s3_key)
+        abort_payload = MultipartAbortRequest(upload_id=s3_upload_id, file_id=file_id)
         try:
             await api_client.abort_multipart(abort_payload)
         except APIRequestError as abort_e:
@@ -189,7 +188,8 @@ async def handle_multipart_upload(
     uploaded_parts_info.sort(key=lambda p: p.PartNumber)
     
     complete_payload = MultipartCompleteRequest(
-        upload_id=s3_upload_id, parts=uploaded_parts_info, s3_key=backend_s3_key, 
+        file_id=file_id,
+        upload_id=s3_upload_id, parts=uploaded_parts_info,
         file_name=file_path.name, collection_name=collection, checksum=overall_file_checksum_sha256,
         final_file_size=file_size, collection_path=target_sub_path, content_type=mime_type
     )
@@ -201,7 +201,7 @@ async def handle_multipart_upload(
     except APIRequestError as e:
         logger.error(f"Failed to complete multipart upload for {file_path.name}: {e}. Aborting S3 MPU.")
         rich_console.print(f"[bold red]  Failed to complete multipart upload. Aborting S3 MPU...[/bold red]")
-        abort_payload_on_failed_complete = MultipartAbortRequest(upload_id=s3_upload_id, s3_key=backend_s3_key)
+        abort_payload_on_failed_complete = MultipartAbortRequest(upload_id=s3_upload_id, file_id=file_id)
         try:
             await api_client.abort_multipart(abort_payload_on_failed_complete)
         except APIRequestError as abort_e:

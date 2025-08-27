@@ -71,9 +71,8 @@ class GlobalArgs(BaseModel):
     quiet_mode: bool = False
     config: AppConfig = Field(default_factory=AppConfig)
 
-# --- API Models (Client-side definitions) ---
-# The following models are completely new for the V2 API.
-# The old models (InitiateUploadRequest, ConfirmSingleUploadRequest, etc.) are removed.
+# --- API Models ---
+
 
 class PrepareSingleRequest(BaseModel):
     collection_name: str
@@ -84,9 +83,8 @@ class PrepareSingleRequest(BaseModel):
     content_type: str
 
 class PrepareSingleResponse(BaseModel):
-    file_id: str
+    file_id: UUID
     presigned_url: HttpUrl
-    s3_key: str
     @field_serializer('presigned_url', when_used='json-unless-none')
     def serialize_url_to_str(self, v: HttpUrl) -> str:
         return str(v)
@@ -102,12 +100,8 @@ class CompleteSingleRequest(BaseModel):
     content_type: str
     s3_etag: str
 
-class S3CompletionData(BaseModel):
-    file_id: str
-    s3_etag: str
-
 class UploadCompletionResponse(BaseModel):
-    file_id: str
+    file_id: UUID
     status: str
     message: str
 
@@ -118,12 +112,11 @@ class MultipartStartRequest(BaseModel):
     collection_path: Optional[str] = None
 
 class MultipartStartResponse(BaseModel):
-    file_id: str
-    s3_key: str
+    file_id: UUID
     upload_id: str
 
 class MultipartGetPartUrlRequest(BaseModel):
-    s3_key: str
+    file_id: UUID
     upload_id: str
     part_number: int
 
@@ -138,7 +131,7 @@ class PartInfo(BaseModel):
     ETag: str
 
 class MultipartCompleteRequest(BaseModel):
-    s3_key: str
+    file_id: UUID
     upload_id: str
     parts: List[PartInfo]
     file_name: str
@@ -149,7 +142,7 @@ class MultipartCompleteRequest(BaseModel):
     final_file_size: int
 
 class MultipartAbortRequest(BaseModel):
-    s3_key: str
+    file_id: UUID
     upload_id: str
 
 class APIErrorDetail(BaseModel):

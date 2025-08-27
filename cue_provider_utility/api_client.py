@@ -1,6 +1,3 @@
-# In cue_provider_utility/api_client.py
-# (This is the complete updated file content)
-
 """
 Asynchronous HTTP client for interacting with the CUE backend API.
 Handles making requests, processing responses, and error handling for API calls.
@@ -8,21 +5,19 @@ Handles making requests, processing responses, and error handling for API calls.
 import httpx
 import logging
 import json
-from typing import Optional, Dict, Any, Union, List
-from pathlib import Path
+from typing import Optional, Dict, Any, List
 from urllib.parse import urljoin
 
-# Import the new, V2-specific models
+# Import the correct V2 models
 from .models import (
     AppConfig, GlobalArgs,
     PrepareSingleRequest, PrepareSingleResponse,
-    S3CompletionData, UploadCompletionResponse,
+    CompleteSingleRequest, UploadCompletionResponse, # S3CompletionData removed from here
     MultipartStartRequest, MultipartStartResponse,
     MultipartGetPartUrlRequest, MultipartGetPartUrlResponse,
     MultipartCompleteRequest,
     MultipartAbortRequest,
-    APIErrorResponse,
-    CompleteSingleRequest
+    APIErrorResponse
 )
 from .exceptions import APIRequestError, ConfigError
 
@@ -34,7 +29,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30.0
-# The API version prefix has been updated to '/v2'
 API_VERSION_PREFIX = "/v2"
 
 async def log_request_details(request: httpx.Request):
@@ -67,11 +61,9 @@ async def log_response_details(response: httpx.Response):
 
 
 class ApiClient:
-    # The constructor now takes 'api_key' instead of 'auth_token'.
     def __init__(self, config: AppConfig, global_args: GlobalArgs, api_key: str):
         self.config = config
         self.global_args = global_args
-        # The auth token is now the API key
         self.api_key = api_key
         self.base_url_no_version = self._get_base_url_no_version()
         
@@ -87,11 +79,10 @@ class ApiClient:
         )
 
     def _get_default_headers(self) -> Dict[str, str]:
-        # The Authorization header format is still 'Bearer'
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "*/*",
-            "User-Agent": "curl/7.81.0"
+            "User-Agent": f"cue-upload-cli/{app_version}"
         }
 
     def _get_base_url_no_version(self) -> str:
@@ -102,15 +93,10 @@ class ApiClient:
             base_url_obj = getattr(self.config.environments, env)
             base_url_str = str(base_url_obj)
 
-            # Update logic to handle both /v1/ and /v2/ suffixes
-            if base_url_str.endswith("/v1/"):
-                base_url_str = base_url_str[:-len("/v1/")]
-            elif base_url_str.endswith("/v1"):
-                base_url_str = base_url_str[:-len("/v1")]
-            elif base_url_str.endswith("/v2/"):
-                base_url_str = base_url_str[:-len("/v2/")]
-            elif base_url_str.endswith("/v2"):
-                base_url_str = base_url_str[:-len("/v2")]
+            for version_suffix in ["/v1/", "/v1", "/v2/", "/v2"]:
+                if base_url_str.endswith(version_suffix):
+                    base_url_str = base_url_str[:-len(version_suffix)]
+                    break
 
             if not base_url_str.endswith('/'):
                 base_url_str += '/'
@@ -126,7 +112,7 @@ class ApiClient:
         json_payload: Optional[Dict[str, Any]] = None,
         expected_status_codes: Optional[List[int]] = None,
         response_model: Optional[Any] = None,
-        files: Optional[Dict[str, Any]] = None # New parameter for multipart/form-data
+        files: Optional[Dict[str, Any]] = None
     ) -> Any:
         if expected_status_codes is None:
             expected_status_codes = [200, 201, 204]
@@ -135,12 +121,11 @@ class ApiClient:
 
         headers = self._get_default_headers()
         request_content = None
-        if json_payload:
+        if json_payload and not files:
             headers["Content-Type"] = "application/json; charset=utf-8"
             request_content = json.dumps(json_payload).encode("utf-8")
         
         try:
-            # Pass 'files' and 'content' appropriately
             response = await self.http_client.request(
                 method, full_url, headers=headers, content=request_content, files=files
             )
@@ -160,7 +145,6 @@ class ApiClient:
             if response_model:
                 if response.status_code == 204:
                     return None
-                # The API returns JSON, so we use .json()
                 return response_model.model_validate(response.json())
             return response
         
@@ -177,10 +161,7 @@ class ApiClient:
             logger.error(f"An unexpected error occurred during the API request: {msg}", exc_info=self.global_args.verbose_level >= 2)
             raise APIRequestError(msg, original_exception=e)
 
-    # --- New V2 API Endpoints ---
-    # The old methods are removed and replaced with the following.
     async def prepare_single_upload(self, payload: PrepareSingleRequest) -> PrepareSingleResponse:
-        """Calls the POST /v2/upload/prepare-single endpoint."""
         endpoint = f"{API_VERSION_PREFIX}/upload/prepare-single"
         return await self._request(
             "POST", endpoint, json_payload=payload.model_dump(),
@@ -188,17 +169,15 @@ class ApiClient:
         )
 
     async def complete_single_upload(self, payload: CompleteSingleRequest) -> UploadCompletionResponse:
-            """Calls POST /v2/upload/complete-single with a consolidated JSON body."""
-            endpoint = f"{API_VERSION_PREFIX}/upload/complete-single"
-            return await self._request(
-                "POST", endpoint,
-                json_payload=payload.model_dump(mode='json'), # Use model_dump for UUID serialization
-                response_model=UploadCompletionResponse,
-                expected_status_codes=[200] # The new endpoint returns 200 OK
-            )
+        endpoint = f"{API_VERSION_PREFIX}/upload/complete-single"
+        return await self._request(
+            "POST", endpoint,
+            json_payload=payload.model_dump(mode='json'),
+            response_model=UploadCompletionResponse,
+            expected_status_codes=[200]
+        )
 
     async def start_multipart(self, payload: MultipartStartRequest) -> MultipartStartResponse:
-        """Calls POST /v2/upload/multipart/start."""
         endpoint = f"{API_VERSION_PREFIX}/upload/multipart/start"
         return await self._request(
             "POST", endpoint, json_payload=payload.model_dump(),
@@ -206,47 +185,26 @@ class ApiClient:
         )
 
     async def get_multipart_part_url(self, payload: MultipartGetPartUrlRequest) -> MultipartGetPartUrlResponse:
-        """Calls POST /v2/upload/multipart/get-part-url."""
         endpoint = f"{API_VERSION_PREFIX}/upload/multipart/get-part-url"
         return await self._request(
-            "POST", endpoint, json_payload=payload.model_dump(),
+            "POST", endpoint, json_payload=payload.model_dump(mode='json'),
             response_model=MultipartGetPartUrlResponse
         )
 
     async def complete_multipart(self, payload: MultipartCompleteRequest) -> UploadCompletionResponse:
-        """Calls POST /v2/upload/multipart/complete."""
         endpoint = f"{API_VERSION_PREFIX}/upload/multipart/complete"
         return await self._request(
-            "POST", endpoint, json_payload=payload.model_dump(),
+            "POST", endpoint, json_payload=payload.model_dump(mode='json'),
             response_model=UploadCompletionResponse
         )
 
     async def abort_multipart(self, payload: MultipartAbortRequest) -> None:
-        """Calls POST /v2/upload/multipart/abort."""
         endpoint = f"{API_VERSION_PREFIX}/upload/multipart/abort"
         await self._request(
-            "POST", endpoint, json_payload=payload.model_dump(),
-            expected_status_codes=[200, 204] # The v2 docs specify a 200/204
+            "POST", endpoint, json_payload=payload.model_dump(mode='json'),
+            expected_status_codes=[204]
         )
 
-    # The `upload_to_s3_presigned_post` method is no longer needed for V2 single uploads, but
-    # we'll keep it as a general utility.
-    async def upload_to_s3_presigned_post(self, url: str, fields: Dict[str, str], file_path: Path, file_name: str, content_type: str) -> httpx.Response:
-        with open(file_path, 'rb') as f:
-            files_data = {'file': (file_name, f, content_type)}
-            try:
-                async with httpx.AsyncClient(timeout=None) as client:
-                    response = await client.post(url, data=fields, files=files_data)
-                
-                if response.status_code not in [200, 204]:
-                    raise APIRequestError(f"S3 presigned POST upload failed with status {response.status_code}.",
-                                          status_code=response.status_code, response_content=response.text)
-                return response
-            except httpx.HTTPError as e:
-                logger.error(f"S3 presigned POST HTTP error for {file_name}: {e}")
-                raise APIRequestError(f"S3 upload failed for {file_name}: {e}", original_exception=e)
-
-    # We will use this method for both single file PUTs and multipart PUTs
     async def upload_to_s3_presigned_put(self, url: str, file_data: bytes, content_length: int) -> httpx.Response:
         headers = {'Content-Length': str(content_length)}
         try:

@@ -3,9 +3,6 @@
 
 """
 Handles the process for uploading a single file (non-multipart).
-1. Calls the /v2/upload/prepare-single endpoint.
-2. Uploads the file to S3 using the presigned PUT URL.
-3. Confirms the successful S3 upload with the /v2/upload/complete-single endpoint.
 """
 import logging
 from pathlib import Path
@@ -24,7 +21,6 @@ from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn, 
 
 logger = logging.getLogger(__name__)
 
-# --- CHANGE: Added optional progress and task_id parameters ---
 async def handle_single_file_upload( 
     file_path: Path,
     file_size: int,
@@ -38,12 +34,9 @@ async def handle_single_file_upload(
     """
     Performs a complete single file upload transaction using the V2 API.
     """
-    # Only print this if it's NOT part of a folder upload
     if progress is None:
         rich_console.print(f"[info]Preparing single file upload for: [bold cyan]{file_path.name}[/bold cyan] ({format_bytes(file_size)})")
 
-    s3_etag: Optional[str] = None
-    
     try:
         rich_console.print(f"  Calculating SHA256 checksum for {file_path.name}...")
         checksum_sha256 = await calculate_sha256_checksum(file_path)
@@ -80,10 +73,8 @@ async def handle_single_file_upload(
         
         s3_headers = {'Content-Type': mime_type, 'Content-Length': str(file_size)}
 
-        # --- CHANGE: Logic to handle both standalone and folder progress bars ---
         async with httpx.AsyncClient(timeout=None) as client:
             if progress is None:
-                # Standalone mode: create its own progress bar
                 with Progress(
                     TextColumn("[progress.description]{task.description}"), BarColumn(),
                     TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
@@ -94,7 +85,6 @@ async def handle_single_file_upload(
                     s3_response_put = await client.put(url=str(prepare_response.presigned_url), content=file_data, headers=s3_headers)
                     progress_bar.update(task_id, completed=file_size, refresh=True)
             else:
-                # Folder mode: use the provided progress bar
                 s3_response_put = await client.put(url=str(prepare_response.presigned_url), content=file_data, headers=s3_headers)
 
         s3_response_put.raise_for_status()
@@ -103,11 +93,16 @@ async def handle_single_file_upload(
         raise UploadError(f"S3 upload failed for {file_path.name}. Reason: {e}")
 
     rich_console.print(f"  Confirming upload of {file_path.name} with backend...")
+    # --- CHANGE: Reverted to build the full metadata payload ---
     complete_payload = CompleteSingleRequest(
-        file_id=prepare_response.file_id, s3_etag=s3_etag,
-        collection_name=collection, file_name=file_path.name,
-        file_size_bytes=file_size, checksum=checksum_sha256,
-        collection_path=target_sub_path, content_type=mime_type
+        file_id=prepare_response.file_id,
+        s3_etag=s3_etag,
+        collection_name=prepare_payload.collection_name,
+        file_name=prepare_payload.file_name,
+        file_size_bytes=prepare_payload.file_size_bytes,
+        checksum=prepare_payload.checksum,
+        collection_path=prepare_payload.collection_path,
+        content_type=prepare_payload.content_type
     )
     
     try:
