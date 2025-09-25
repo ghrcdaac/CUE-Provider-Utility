@@ -1,6 +1,3 @@
-# In cue_provider_utility/uploader.py
-# (This is the complete updated file content)
-
 """
 Core upload orchestrator.
 Determines upload strategy (single, multipart, folder) and delegates processing.
@@ -11,13 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 from .models import AppConfig, GlobalArgs
-from .exceptions import UploadError, FileProcessingError, APIRequestError, ConfigError
+from .exceptions import UploadError, FileProcessingError, APIRequestError, ConfigError, IgnoredFileError
 from .api_client import ApiClient
 from .single_file_uploader import handle_single_file_upload
 from .multipart_uploader import handle_multipart_upload
 from .folder_processor import process_folder_upload
-from .utils import get_file_size, validate_file_type, format_bytes 
-from .logger_setup import rich_console 
+from .utils import get_file_size, validate_file_type
+from .ignored_files_handler import is_path_ignored
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +22,7 @@ async def process_upload(
     source_path: Path,
     collection: str,
     target_sub_path: Optional[str],
-    api_key: str, # Variable name changed
+    api_key: str,
     config: AppConfig,
     global_args: GlobalArgs,
     file_concurrency: int,
@@ -42,13 +39,18 @@ async def process_upload(
     except AttributeError: 
         raise ConfigError(f"Environment URL for '{selected_env_name}' not found.")
 
-    # Pass the api_key to the ApiClient
     api_client = ApiClient(config=config, global_args=global_args, api_key=api_key)
     
+    # --- Perform ignore check for single file uploads ---
+    if source_path.is_file():
+        if is_path_ignored(source_path, base_path=source_path.parent, config_path_override=global_args.config_path_override):
+            raise IgnoredFileError(f"File '{source_path.name}' matches an active ignore pattern and will not be uploaded.")
+
     try:
         if not source_path.exists():
             raise FileProcessingError(f"Source path does not exist: {source_path}")
         
+        # This initial validation is still useful for immediate feedback on disallowed types
         if source_path.is_file():
             await validate_file_type(source_path, config)
 
@@ -80,7 +82,7 @@ async def process_upload(
         else:
             raise FileProcessingError(f"Source path is not a file or directory: {source_path}")
 
-    except (UploadError, FileProcessingError, APIRequestError, ConfigError) as e:
+    except (UploadError, FileProcessingError, APIRequestError, ConfigError, IgnoredFileError) as e:
         logger.error(f"Upload processing failed: {e}", exc_info=global_args.verbose_level >=2)
         raise
     except Exception as e:

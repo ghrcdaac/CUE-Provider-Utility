@@ -19,15 +19,16 @@ class EnvironmentURLs(BaseModel):
         return str(v)
 
 class AppConfig(BaseModel):
-    # Field changed from 'api_token' to 'api_key' to match the new authentication scheme
     api_key: Optional[str] = None
     default_env: str = Field(default="prod", pattern=r"^(prod|uat|sit|local)$")
+    
+    # New setting to control where the API key is saved
+    save_key_to_netrc: bool = Field(default=True)
     
     multipart_threshold_gb: int = Field(default=1, gt=0)
     multipart_chunk_size_mb: int = Field(default=256, gt=0)
     
-    # Enforce a max retry limit of 5.
-    retry_attempts: int = Field(default=3, ge=0, le=5)
+    retry_attempts: int = Field(default=0, ge=0, le=5)
     
     log_level: str = Field(default="INFO", pattern=r"^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
     log_file_directory: Path = Field(default=Path.home() / ".cue-upload" / "logs")
@@ -38,15 +39,11 @@ class AppConfig(BaseModel):
     environments: EnvironmentURLs = Field(default_factory=EnvironmentURLs)
     user_ignored_patterns: List[str] = Field(default_factory=list)
 
-    # Add MIME type validation controls.
-    # List of disallowed MIME types that will always be rejected.
     denied_mime_types: List[str] = Field(default_factory=lambda: [
-        "application/x-dosexec", # Windows .exe/.dll
-        "application/x-mach-binary", # MacOS executable
-        "application/x-elf", # Linux executable
+        "application/x-dosexec",
+        "application/x-mach-binary",
+        "application/x-elf",
     ])
-    # Optional list of allowed MIME types. If empty, all types not in denied_mime_types are allowed.
-    # If populated, only MIME types on this list will be allowed (after checking against the deny list).
     allowed_mime_types: Optional[List[str]] = None
 
     @field_validator('log_file_directory', mode='before')
@@ -62,7 +59,6 @@ class AppConfig(BaseModel):
 
 # --- CLI Context Object ---
 class GlobalArgs(BaseModel):
-    # Field changed from 'token_cli' to 'api_key_cli' to match the new authentication scheme
     api_key_cli: Optional[str] = None
     env_cli: Optional[str] = None
     config_path_override: Optional[Path] = None
@@ -72,7 +68,6 @@ class GlobalArgs(BaseModel):
     config: AppConfig = Field(default_factory=AppConfig)
 
 # --- API Models ---
-
 
 class PrepareSingleRequest(BaseModel):
     collection_name: str
@@ -90,7 +85,6 @@ class PrepareSingleResponse(BaseModel):
         return str(v)
 
 class CompleteSingleRequest(BaseModel):
-    """A single, consolidated model for the 'complete' step."""
     file_id: UUID
     collection_name: str
     file_name: str
@@ -144,10 +138,3 @@ class MultipartCompleteRequest(BaseModel):
 class MultipartAbortRequest(BaseModel):
     file_id: UUID
     upload_id: str
-
-class APIErrorDetail(BaseModel):
-    message: str
-    code: Optional[str] = None
-
-class APIErrorResponse(BaseModel):
-    error: APIErrorDetail

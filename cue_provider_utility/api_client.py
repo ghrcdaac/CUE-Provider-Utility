@@ -1,23 +1,19 @@
-"""
-Asynchronous HTTP client for interacting with the CUE backend API.
-Handles making requests, processing responses, and error handling for API calls.
-"""
+# In cue_provider_utility/api_client.py
+
 import httpx
 import logging
 import json
 from typing import Optional, Dict, Any, List
 from urllib.parse import urljoin
 
-# Import the correct V2 models
 from .models import (
     AppConfig, GlobalArgs,
     PrepareSingleRequest, PrepareSingleResponse,
-    CompleteSingleRequest, UploadCompletionResponse, # S3CompletionData removed from here
+    CompleteSingleRequest, UploadCompletionResponse,
     MultipartStartRequest, MultipartStartResponse,
     MultipartGetPartUrlRequest, MultipartGetPartUrlResponse,
     MultipartCompleteRequest,
-    MultipartAbortRequest,
-    APIErrorResponse
+    MultipartAbortRequest
 )
 from .exceptions import APIRequestError, ConfigError
 
@@ -81,7 +77,7 @@ class ApiClient:
     def _get_default_headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
-            "Accept": "*/*",
+            "Accept": "application/json",
             "User-Agent": f"cue-upload-cli/{app_version}"
         }
 
@@ -132,20 +128,37 @@ class ApiClient:
 
             if response.status_code not in expected_status_codes:
                 error_content_text = response.text
+                
                 try:
-                    api_error = APIErrorResponse.model_validate_json(response.content)
-                    error_message = f"API Error (HTTP {response.status_code}): {api_error.error.message}"
-                except Exception:
-                    error_message = f"API request failed with status {response.status_code} ({response.reason_phrase})"
+                    # Attempt to parse the JSON and get the 'detail' key
+                    error_json = response.json()
+                    detail_message = error_json.get("detail")
+                    if detail_message:
+                        # Use the specific message from the API
+                        error_message = detail_message
+                    else:
+                        # Fallback if 'detail' key is missing but it's still JSON
+                        error_message = f"API Error (HTTP {response.status_code}): {error_content_text}"
+                except json.JSONDecodeError:
+                    # Fallback if the response is not valid JSON (e.g., HTML from a proxy)
+                    error_message = f"API request failed with status {response.status_code} ({response.reason_phrase})."
+
                 
                 raise APIRequestError(
                     message=error_message, status_code=response.status_code, response_content=error_content_text
                 )
-
-            if response_model:
-                if response.status_code == 204:
-                    return None
+            
+            if response_model and response.status_code != 204:
+                content_type = response.headers.get("content-type", "")
+                if "application/json" not in content_type:
+                    raise APIRequestError(
+                        f"API returned unexpected content type '{content_type}' instead of 'application/json'. "
+                        f"This often indicates a server routing error.",
+                        status_code=response.status_code,
+                        response_content=response.text
+                    )
                 return response_model.model_validate(response.json())
+
             return response
         
         except httpx.TimeoutException as e:

@@ -1,16 +1,14 @@
-"""
-Common utility functions used across the application.
-Includes functions for checksum calculation, file operations, etc.
-"""
 import hashlib
 import base64
 import logging
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import Optional, Any
 import asyncio
 
 import aiofiles
-import puremagic 
+import puremagic
+# Import Progress for typing
+from rich.progress import Progress
 
 from .exceptions import FileProcessingError
 from .models import AppConfig
@@ -18,10 +16,14 @@ from .models import AppConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHUNK_SIZE_BYTES = 1024 * 1024 * 32  # 32 MiB
-# A small set of executable extensions for the secondary filename check
-SUSPICIOUS_EXTENSIONS = {'.exe', '.dll', '.so', '.dmg', '.sh', '.bat'} 
+SUSPICIOUS_EXTENSIONS = {'.exe', '.dll', '.so', '.dmg', '.sh', '.bat'}
 
-async def calculate_sha256_checksum(file_path: Path, chunk_size: int = DEFAULT_CHUNK_SIZE_BYTES) -> str:
+async def calculate_sha256_checksum(
+    file_path: Path,
+    chunk_size: int = DEFAULT_CHUNK_SIZE_BYTES,
+    progress: Optional[Progress] = None,
+    task_id: Optional[Any] = None
+) -> str:
     """Calculates the SHA256 checksum of a file asynchronously and returns it Base64 encoded."""
     sha256_hash = hashlib.sha256()
     try:
@@ -31,6 +33,9 @@ async def calculate_sha256_checksum(file_path: Path, chunk_size: int = DEFAULT_C
                 if not chunk:
                     break
                 sha256_hash.update(chunk)
+                if progress and task_id is not None:
+                    progress.update(task_id, advance=len(chunk))
+                await asyncio.sleep(0)
         return base64.b64encode(sha256_hash.digest()).decode('utf-8')
     except OSError as e:
         logger.error(f"Error reading file {file_path} for SHA256 checksum: {e}")
@@ -57,28 +62,60 @@ async def get_mime_type(file_path: Path) -> str:
     Falls back to common extensions or application/octet-stream.
     """
     try:
-        # Run synchronous puremagic in a separate thread to avoid blocking asyncio event loop
         mime = await asyncio.to_thread(puremagic.from_file, str(file_path), mime=True)
         if mime:
             logger.debug(f"Determined MIME type for {file_path.name}: {mime} (using puremagic)")
             return mime
-    except Exception as e: 
+    except Exception as e:
         logger.warning(f"puremagic failed for {file_path.name}: {e}. Falling back to extension map.")
 
-    # Add fallback for common scientific data formats
     ext_map = {
-        '.zip': 'application/zip', '.txt': 'text/plain', '.json': 'application/json',
-        '.xml': 'application/xml', '.csv': 'text/csv', '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
-        '.pdf': 'application/pdf', '.tar': 'application/x-tar', '.gz': 'application/gzip',
-        '.tgz': 'application/gzip', '.nc': 'application/x-netcdf', '.hdf': 'application/x-hdf',
-        '.h4': 'application/x-hdf', '.h5': 'application/x-hdf'
+        # Archives
+        '.zip': 'application/zip',
+        '.tar': 'application/x-tar',
+        '.gz': 'application/gzip',
+        '.tgz': 'application/gzip',
+        '.bz2': 'application/x-bzip2',
+        '.7z': 'application/x-7z-compressed',
+
+        # Documents
+        '.txt': 'text/plain',
+        '.csv': 'text/csv',
+        '.json': 'application/json',
+        '.xml': 'application/xml',
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+
+        # Images
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.tif': 'image/tiff',
+        '.tiff': 'image/tiff',
+
+        # Scientific & Geospatial
+        '.nc': 'application/x-netcdf',
+        '.hdf': 'application/x-hdf',
+        '.h4': 'application/x-hdf',
+        '.h5': 'application/x-hdf',
+        '.img': 'application/octet-stream', # .img is generic, octet-stream is safe
+        '.shp': 'application/octet-stream', # .shp is often part of a set, octet-stream is safe
+        '.geojson': 'application/geo+json',
+
+        # Other
+        '.bin': 'application/octet-stream',
     }
     ext = file_path.suffix.lower()
     if ext in ext_map:
         logger.debug(f"Determined MIME type for {file_path.name}: {ext_map[ext]} (using fallback map)")
         return ext_map[ext]
-    
+
     logger.warning(f"Could not determine MIME type for {file_path.name}. Defaulting to application/octet-stream.")
     return "application/octet-stream"
 
@@ -88,29 +125,23 @@ async def validate_file_type(file_path: Path, config: AppConfig) -> None:
     Raises FileProcessingError if validation fails.
     """
     logger.debug(f"Validating file type for: {file_path.name}")
-    
-    # 1. Primary check: Use MIME type from file content ("magic numbers")
+
     mime_type = await get_mime_type(file_path)
-    
-    # Check against deny list (highest priority)
+
     if mime_type in config.denied_mime_types:
         raise FileProcessingError(f"File '{file_path.name}' has a disallowed MIME type: '{mime_type}'. Upload rejected.")
 
-    # If an allow list is configured, enforce it
     if config.allowed_mime_types and mime_type not in config.allowed_mime_types:
         raise FileProcessingError(f"File '{file_path.name}' has MIME type '{mime_type}', which is not in the configured allowed list.")
 
-    # 2. Secondary check: Look for suspicious extensions within the filename
     filename_lower = file_path.name.lower()
     parts = filename_lower.split('.')
-    # Check for suspicious extensions in parts before the last one (e.g., "virus.exe.pdf")
     if len(parts) > 2:
         for part in parts[:-1]:
-            # Construct the extension with a dot to match the set
             inner_ext = f".{part}"
             if inner_ext in SUSPICIOUS_EXTENSIONS:
                 raise FileProcessingError(f"File '{file_path.name}' contains a suspicious inner extension '{inner_ext}'. Upload rejected for security.")
-    
+
     logger.debug(f"File type validation passed for {file_path.name} (MIME: {mime_type})")
 
 
@@ -122,5 +153,5 @@ def format_bytes(size_bytes: int) -> str:
         size_bytes /= 1024.0
         if size_bytes < 1024.0:
             return f"{size_bytes:.2f} {unit}"
-    return f"{size_bytes:.2f} PiB" 
+    return f"{size_bytes:.2f} PiB"
 
