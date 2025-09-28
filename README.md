@@ -47,12 +47,16 @@ The recommended way to set up the CLI is to use the interactive configure comman
 cue-upload configure
 ```
 
-The configuration process will:
-- Ask you where you want to store your API key:
-  - `.netrc` file (Recommended): A standard, secure, and user-specific file for credentials.
-  - `config.toml` file.
-- Prompt you to enter your API key (your input will be visible to prevent typos).
-- Optionally allow you to configure advanced settings like the default environment or retry attempts.
+This will guide you through each option, showing the current value and prompting for a new one. At the end, it will guide you through the API key setup.
+
+### Quickly Updating Your API Key
+If you only need to update, change, or remove your stored API key without going through all the other settings, you can use the `--key` flag. This provides a fast and secure way to manage your credentials.
+
+```bash
+cue-upload configure --key
+```
+
+The prompt will detect if you already have a key stored and ask if you want to overwrite or delete it.
 
 ### API Key Management
 The CLI retrieves your API key from the following sources, in this order of priority:
