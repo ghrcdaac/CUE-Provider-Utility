@@ -1,46 +1,49 @@
-[project]
+[tool.poetry]
+# Project metadata, moved from the [project] section for Poetry compatibility.
 name = "cue-provider-utility"
 version = "0.1.0"
 description = "CLI utility for uploading data to CUE (Cloud Upload Environment)"
-authors = [
-    {name = "Navaneeth Selvaraj",email = "ns0066@uah.edu"}
-]
-license = {text = "Apache-2.0"}
+authors = ["Navaneeth Selvaraj <ns0066@uah.edu>"]
+license = "Apache-2.0"
 readme = "README.md"
-requires-python = "^3.10"
-dependencies = [
-    "click (>=8.2.0,<9.0.0)",
-    "httpx[http2] (>=0.28.1,<0.29.0)",
-    "aiofiles (>=24.1.0,<25.0.0)",
-    "pydantic (>=2.11.4,<3.0.0)",
-    "puremagic (>=1.29,<2.0)",
-    "python-dotenv (>=1.1.0,<2.0.0)",
-    "toml (>=0.10.2,<0.11.0)",
-    "python-jose[cryptography] (>=3.4.0,<4.0.0)",
-    "rich>=13.7.1"
-]
+packages = [{include = "cue_provider_utility"}]
+
+[tool.poetry.dependencies]
+# The python version is specified here for Poetry.
+python = "^3.10"
+
+# List of production dependencies required for the CLI to run.
+click = ">=8.1.3,<9.0.0"
+httpx = {extras = ["http2"], version = ">=0.27.0,<0.28.0"}
+aiofiles = ">=23.2.1,<24.0.0"
+pydantic = ">=2.5.0,<3.0.0"
+puremagic = ">=1.15,<2.0.0"
+toml = ">=0.10.2,<0.11.0"
+rich = ">=13.7.0,<14.0.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-pytest-cov = "^6.1.1"
-pytest-asyncio = "^0.26.0"
-pytest-httpx = "^0.35.0"
-flake8 = "^7.2.0"
-black = "^25.1.0"
-mypy = "^1.15.0"
-isort = "^6.0.1"
+# Dependencies used only for development (testing, linting, formatting).
+pytest = "^8.0.0"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.23.0"
+pytest-httpx = "^0.31.0"
+flake8 = "^7.0.0"
+black = "^24.0.0"
+mypy = "^1.8.0"
+isort = "^5.13.0"
 
 [build-system]
-requires = ["poetry-core>=2.0.0"]
+# Standard build system configuration for Poetry.
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
+# This defines the command-line entry point for the application.
+# Running `cue-upload` will execute the `cli_app` function in `main.py`.
 cue-upload = "cue_provider_utility.main:cli_app"
 
-[tool.poetry]
-packages = [{include = "cue_provider_utility"}]
+# --- Code Quality Tool Configurations ---
 
-# Code quality tool configurations
 [tool.black]
 line-length = 88
 target-version = ['py310']
