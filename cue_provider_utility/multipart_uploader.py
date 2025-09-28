@@ -8,7 +8,6 @@ import httpx
 from .models import (
     AppConfig, PartInfo,
     MultipartStartRequest, MultipartCompleteRequest, MultipartAbortRequest,
-    # ADDED: Import the missing Pydantic model
     MultipartGetPartUrlRequest
 )
 from .exceptions import UploadError, FileProcessingError, APIRequestError
@@ -146,9 +145,6 @@ async def handle_multipart_upload(
         
         # Wait for both to complete
         results = await asyncio.gather(checksum_task, upload_task, return_exceptions=True)
-        
-        # This is no longer needed as the checksum task updates its own progress
-        # prog.update(checksum_progress_task_id, completed=1)
 
         checksum_result, upload_result = results
         

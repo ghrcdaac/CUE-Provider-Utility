@@ -151,12 +151,79 @@ def upload_command(ctx: click.Context, upload_path: Path, collection: str, targe
 
 
 @cli_app.command("configure")
+@click.option('--key', 'set_key_only', is_flag=True, help="Only prompt for and save the API key.")
 @click.pass_context
-def configure_command(ctx: click.Context):
-    """Interactively configures all CUE Provider Utility settings."""
+def configure_command(ctx: click.Context, set_key_only: bool):
+    """Interactively configures CUE Provider Utility settings."""
     global_args: GlobalArgs = ctx.obj
     config = get_config(global_args.config_path_override)
     config_file = get_config_file_path(global_args.config_path_override)
+
+    # --- Helper function for the API Key prompt logic ---
+    def _handle_api_key_prompt():
+        """Handles the logic for prompting and saving the API key."""
+        nonlocal config # Allows modification of the config object from the outer scope
+        rich_console.print("\n[bold]API Key Storage[/bold]")
+
+        save_to_netrc_prompt = "Save API key to the secure .netrc file? (Recommended). If 'no', it will be saved to config.toml."
+        save_to_netrc = click.confirm(save_to_netrc_prompt, default=config.save_key_to_netrc)
+        if save_to_netrc != config.save_key_to_netrc:
+            save_config_value("save_key_to_netrc", save_to_netrc, global_args.config_path_override)
+            setattr(config, "save_key_to_netrc", save_to_netrc)
+
+        key_location = ".netrc" if config.save_key_to_netrc else "config.toml"
+        
+        hostname = None
+        if config.save_key_to_netrc:
+            try:
+                env = config.default_env
+                base_url_obj = getattr(config.environments, env)
+                hostname = urlparse(str(base_url_obj)).hostname
+            except Exception:
+                rich_console.print(f"[red]Could not determine hostname for environment '{config.default_env}'. Cannot manage .netrc key.[/red]")
+                
+        key_exists = False
+        if hostname and config.save_key_to_netrc:
+            key_exists = get_key_from_netrc(hostname) is not None
+        else:
+            key_exists = get_config(global_args.config_path_override).api_key is not None
+
+        if key_exists:
+            rich_console.print(f"\nAn API key is already set in [bold]{key_location}[/bold].")
+            prompt_msg = "Enter a new key to overwrite, type [bold red]DELETE[/bold red] to remove, or press Enter to skip:"
+        else:
+            prompt_msg = f"Enter new API key to save to [bold]{key_location}[/bold] (input is visible, press Enter to skip):"
+
+        rich_console.print(prompt_msg)
+        new_key = click.prompt(">", default="", show_default=False, prompt_suffix="")
+
+        if new_key.upper() == 'DELETE':
+            if hostname and config.save_key_to_netrc:
+                if remove_key_from_netrc(hostname):
+                    rich_console.print(f"[yellow]API key for {hostname} removed from .netrc.[/yellow]")
+            else:
+                save_api_key_to_config(None, global_args.config_path_override)
+                rich_console.print("[yellow]API key removed from config.toml.[/yellow]")
+        elif new_key:
+            if hostname and config.save_key_to_netrc:
+                save_key_to_netrc(hostname, "cue-cli-user", new_key)
+                rich_console.print(f"[green]API key for {hostname} saved to .netrc.[/green]")
+            else:
+                save_api_key_to_config(new_key, global_args.config_path_override)
+                rich_console.print("[green]API key saved to config.toml.[/green]")
+        else:
+             # Only show this message if a key wasn't changed or deleted
+            if not new_key.upper() == 'DELETE':
+                rich_console.print("[yellow]API key not changed.[/yellow]")
+    
+    # --- Main command logic ---
+
+    # If --key flag is used, only handle the API key and exit.
+    if set_key_only:
+        _handle_api_key_prompt()
+        return
+
+    # Otherwise, run the full interactive wizard.
     rich_console.print(f"\n[bold]CUE Provider Utility Configuration[/bold]")
     rich_console.print(f"Editing settings in: [dim]{config_file}[/dim]\n")
 
@@ -180,12 +247,10 @@ def configure_command(ctx: click.Context):
         
         rich_console.print(" ".join(prompt_parts))
         
-        # Use a loop for validation
         while True:
             try:
                 prompt_indicator = f"  (current: {current_value}) > "
                 value_str = click.prompt(prompt_indicator, default=str(current_value), show_default=False)
-                # If user just hits enter, use the current value
                 new_value = current_value if value_str == str(current_value) else setting_type.convert(value_str, None, None)
                 
                 if new_value != current_value:
@@ -196,56 +261,8 @@ def configure_command(ctx: click.Context):
                 rich_console.print(f"  [red]Invalid value: {e}. Please try again.[/red]")
         rich_console.print("-" * 20)
 
-
-    # --- API Key Settings (handled last) ---
-    rich_console.print("\n[bold]API Key Storage[/bold]")
-
-    save_to_netrc_prompt = "Save API key to the secure .netrc file? (Recommended). If 'no', it will be saved to config.toml."
-    save_to_netrc = click.confirm(save_to_netrc_prompt, default=config.save_key_to_netrc)
-    if save_to_netrc != config.save_key_to_netrc:
-        save_config_value("save_key_to_netrc", save_to_netrc, global_args.config_path_override)
-        setattr(config, "save_key_to_netrc", save_to_netrc)
-
-    key_location = ".netrc" if config.save_key_to_netrc else "config.toml"
-    
-    hostname = None
-    if config.save_key_to_netrc:
-        try:
-            env = config.default_env
-            base_url_obj = getattr(config.environments, env)
-            hostname = urlparse(str(base_url_obj)).hostname
-        except Exception:
-            rich_console.print(f"[red]Could not determine hostname for environment '{config.default_env}'. Cannot manage .netrc key.[/red]")
-            
-    key_exists = False
-    if hostname and config.save_key_to_netrc:
-        key_exists = get_key_from_netrc(hostname) is not None
-    else:
-        key_exists = get_config(global_args.config_path_override).api_key is not None
-
-    if key_exists:
-        rich_console.print(f"\nAn API key is already set in [bold]{key_location}[/bold].")
-        prompt_msg = "Enter a new key to overwrite, type [bold red]DELETE[/bold red] to remove, or press Enter to skip:"
-    else:
-        prompt_msg = f"Enter new API key to save to [bold]{key_location}[/bold] (input is visible, press Enter to skip):"
-
-    rich_console.print(prompt_msg)
-    new_key = click.prompt(">", default="", show_default=False, prompt_suffix="")
-
-    if new_key.upper() == 'DELETE':
-        if hostname and config.save_key_to_netrc:
-            if remove_key_from_netrc(hostname):
-                rich_console.print(f"[yellow]API key for {hostname} removed from .netrc.[/yellow]")
-        else:
-            save_api_key_to_config(None, global_args.config_path_override)
-            rich_console.print("[yellow]API key removed from config.toml.[/yellow]")
-    elif new_key:
-        if hostname and config.save_key_to_netrc:
-            save_key_to_netrc(hostname, "cue-cli-user", new_key)
-            rich_console.print(f"[green]API key for {hostname} saved to .netrc.[/green]")
-        else:
-            save_api_key_to_config(new_key, global_args.config_path_override)
-            rich_console.print("[green]API key saved to config.toml.[/green]")
+    # --- API Key Settings handled last ---
+    _handle_api_key_prompt()
 
     rich_console.print("\n[green]Configuration finished.[/green]")
 

@@ -1,5 +1,4 @@
-# In cue_provider_utility/folder_processor.py
-# (This is the complete updated file content)
+# cue_provider_utility/folder_processor.py
 
 """
 Handles the processing of folder uploads.

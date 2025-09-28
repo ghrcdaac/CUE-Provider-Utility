@@ -1,5 +1,4 @@
-# In cue_provider_utility/config_manager.py
-# (This is the complete updated file content)
+# cue_provider_utility/config_manager.py
 
 """
 Manages the application's configuration file (config.toml).

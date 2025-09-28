@@ -7,7 +7,6 @@ import asyncio
 
 import aiofiles
 import puremagic
-# Import Progress for typing
 from rich.progress import Progress
 
 from .exceptions import FileProcessingError

@@ -1,5 +1,4 @@
-# In cue_provider_utility/auth_handler.py
-# (This is the complete updated file content)
+# cue_provider_utility/auth_handler.py
 
 import os
 import logging
