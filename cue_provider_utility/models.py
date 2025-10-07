@@ -96,8 +96,6 @@ class CompleteSingleRequest(BaseModel):
 
 class UploadCompletionResponse(BaseModel):
     file_id: UUID
-    status: str
-    message: str
 
 class MultipartStartRequest(BaseModel):
     collection_name: str
