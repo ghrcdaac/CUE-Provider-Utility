@@ -106,12 +106,13 @@ async def handle_multipart_upload(
     file_path: Path, file_size: int, collection: str, target_sub_path: Optional[str],
     api_client: ApiClient, config: AppConfig, part_concurrency: int,
     progress: Optional[Progress] = None,
-    overall_folder_task_id: Optional[Any] = None
+    # Renamed variable for clarity. This now represents the task for this specific file.
+    file_task_id: Optional[Any] = None
 ):
     """
     Performs a complete, optimized multipart upload.
     """
-    if progress is None:
+    if not progress:
         rich_console.print(f"[info]Preparing multipart upload for: [bold cyan]{file_path.name}[/bold cyan] ({format_bytes(file_size)})")
 
     chunk_size_bytes = config.multipart_chunk_size_mb * (1024**2)
@@ -119,40 +120,77 @@ async def handle_multipart_upload(
     if num_parts > S3_MAX_PARTS:
         raise UploadError(f"File {file_path.name} requires {num_parts} parts, exceeding S3 limit of {S3_MAX_PARTS}.")
 
-    with rich_console.status("[bold green]Determining file type...[/]"):
+    
+    #  Update the parent progress bar if it exists, otherwise use a temporary status.
+    if progress and file_task_id:
+        progress.update(file_task_id, description="[bold green]Determining file type...[/]")
         mime_type = await get_mime_type(file_path)
+    else:
+        with rich_console.status("[bold green]Determining file type...[/]"):
+            mime_type = await get_mime_type(file_path)
+
     
     start_payload = MultipartStartRequest(file_name=file_path.name, collection_name=collection, content_type=mime_type, collection_path=target_sub_path)
-    with rich_console.status("[bold green]Initiating multipart upload with backend...[/]"):
+    
+    
+    if progress and file_task_id:
+        progress.update(file_task_id, description="[bold green]Initiating upload...[/]")
         start_response = await api_client.start_multipart(start_payload)
+    else:
+        with rich_console.status("[bold green]Initiating multipart upload with backend...[/]"):
+            start_response = await api_client.start_multipart(start_payload)
+   
     
     s3_upload_id = start_response.upload_id
     file_id = start_response.file_id
     part_tasks = [UploadPartTask(i + 1, i * chunk_size_bytes, min(chunk_size_bytes, file_size - (i * chunk_size_bytes)), file_path) for i in range(num_parts)]
     
-    # This block runs the upload and checksum in parallel and displays a combined progress.
-    with Progress(SpinnerColumn(), TextColumn("[bold cyan]{task.description}"), BarColumn(), TextColumn("[progress.percentage]{task.percentage:>3.1f}%"), TransferSpeedColumn(), TimeRemainingColumn(), console=rich_console) as prog:
-        upload_progress_task_id = prog.add_task(f"Uploading {file_path.name}", total=file_size)
-        #The checksum task now has a total, so it will show a real progress bar
-        checksum_progress_task_id = prog.add_task("Calculating Checksum", total=file_size)
+    # Declare result variables outside the conditional blocks
+    checksum_result = None
+    upload_result = None
 
-        # Create the two main concurrent tasks
-        # Pass the progress manager and task ID to the checksum function
+    
+    # Use the parent progress object if provided, otherwise create a new one.
+    if progress and file_task_id:
+        #  Use the existing progress manager from the parent.
+        prog = progress
+        upload_progress_task_id = file_task_id
+        # Add a new, temporary task for the checksum to the existing progress display
+        checksum_progress_task_id = prog.add_task(f"Checksum {file_path.name}", total=file_size)
+        
+        # Reset the main file task's progress before starting
+        prog.reset(upload_progress_task_id, total=file_size, description=f"Uploading {file_path.name}")
+
         checksum_task = asyncio.create_task(
             calculate_sha256_checksum(file_path, progress=prog, task_id=checksum_progress_task_id)
         )
         upload_task = asyncio.create_task(_run_all_part_uploads(part_tasks, api_client, config, part_concurrency, s3_upload_id, str(file_id), prog, upload_progress_task_id))
         
-        # Wait for both to complete
         results = await asyncio.gather(checksum_task, upload_task, return_exceptions=True)
-
         checksum_result, upload_result = results
-        
-        # Handle exceptions from parallel tasks
-        if isinstance(checksum_result, Exception):
-            raise UploadError("Failed to calculate file checksum.", original_exception=checksum_result)
-        if isinstance(upload_result, Exception):
-            raise UploadError("An unexpected error occurred during part uploads.", original_exception=upload_result)
+
+        # Clean up the temporary checksum task
+        prog.remove_task(checksum_progress_task_id)
+    else:
+        #  Create a self-contained progress display (original behavior).
+        with Progress(SpinnerColumn(), TextColumn("[bold cyan]{task.description}"), BarColumn(), TextColumn("[progress.percentage]{task.percentage:>3.1f}%"), TransferSpeedColumn(), TimeRemainingColumn(), console=rich_console) as prog:
+            upload_progress_task_id = prog.add_task(f"Uploading {file_path.name}", total=file_size)
+            checksum_progress_task_id = prog.add_task("Calculating Checksum", total=file_size)
+
+            checksum_task = asyncio.create_task(
+                calculate_sha256_checksum(file_path, progress=prog, task_id=checksum_progress_task_id)
+            )
+            upload_task = asyncio.create_task(_run_all_part_uploads(part_tasks, api_client, config, part_concurrency, s3_upload_id, str(file_id), prog, upload_progress_task_id))
+            
+            results = await asyncio.gather(checksum_task, upload_task, return_exceptions=True)
+            checksum_result, upload_result = results
+    
+
+    # Handle exceptions from parallel tasks
+    if isinstance(checksum_result, Exception):
+        raise UploadError("Failed to calculate file checksum.", original_exception=checksum_result)
+    if isinstance(upload_result, Exception):
+        raise UploadError("An unexpected error occurred during part uploads.", original_exception=upload_result)
             
     # Now that tasks are complete, we have the results
     overall_file_checksum_sha256 = checksum_result
@@ -161,7 +199,7 @@ async def handle_multipart_upload(
     # Abort if not all parts were uploaded successfully
     if len(uploaded_parts_info) != num_parts:
         first_error = next((pt.error for pt in part_tasks if pt.error), "Unknown error")
-        rich_console.print("[bold red]  Not all parts uploaded successfully. Aborting...[/bold red]")
+        rich_console.print("[bold red]   Not all parts uploaded successfully. Aborting...[/bold red]")
         await api_client.abort_multipart(MultipartAbortRequest(upload_id=s3_upload_id, file_id=file_id))
         raise UploadError(f"One or more parts failed to upload. First error: {first_error}")
 
@@ -172,8 +210,15 @@ async def handle_multipart_upload(
         final_file_size=file_size, collection_path=target_sub_path, content_type=mime_type
     )
 
-    with rich_console.status("[bold green]Completing multipart upload with backend...[/]"):
-        await api_client.complete_multipart(complete_payload)
-    
-    rich_console.print(f"  [green]✓[/green] Successfully uploaded [bold cyan]{file_path.name}[/bold cyan].")
 
+    if progress and file_task_id:
+        progress.update(file_task_id, description="[bold green]Completing upload...[/]")
+        await api_client.complete_multipart(complete_payload)
+    else:
+        with rich_console.status("[bold green]Completing multipart upload with backend...[/]"):
+            await api_client.complete_multipart(complete_payload)
+   
+
+    # Don't print the final success message if being managed by a parent progress bar
+    if not progress:
+        rich_console.print(f"   [green]✓[/green] Successfully uploaded [bold cyan]{file_path.name}[/bold cyan].")

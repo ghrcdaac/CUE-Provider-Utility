@@ -7,8 +7,8 @@ Scans directories, filters files, manages concurrent uploads of individual files
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Optional, List, Tuple 
-import click 
+from typing import Any, Optional, List, Tuple
+import click
 
 from .models import AppConfig, GlobalArgs
 from .exceptions import UploadError, FileProcessingError, APIRequestError, UploadCancelledError
@@ -16,7 +16,7 @@ from .api_client import ApiClient
 from .utils import get_file_size, validate_file_type, format_bytes
 from .ignored_files_handler import is_path_ignored
 from .logger_setup import rich_console
-from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn, TimeElapsedColumn
+from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn, TimeElapsedColumn, TaskID
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,11 @@ class FileToUpload:
     """Represents a file discovered during folder scan, ready for upload."""
     def __init__(self, local_path: Path, relative_path: Path, size: int):
         self.local_path = local_path
-        self.relative_path = relative_path 
+        self.relative_path = relative_path
         self.size = size
-        self.status: str = "pending" 
+        self.status: str = "pending"
         self.error_message: Optional[str] = None
+        self.task_id: Optional[TaskID] = None # Will hold the ID for its own progress bar task
 
     def __repr__(self):
         return f"<FileToUpload {self.relative_path} status={self.status}>"
@@ -48,7 +49,7 @@ async def scan_folder(
 
     rich_console.print(f"[info]Scanning folder: [cyan]{folder_path}[/cyan]...")
     
-    for item in folder_path.rglob("*"): 
+    for item in folder_path.rglob("*"):
         try:
             if is_path_ignored(item, base_path=folder_path, config_path_override=config_path_override):
                 logger.debug(f"Ignoring path due to ignore rules: {item.relative_to(folder_path)}")
@@ -79,63 +80,73 @@ async def scan_folder(
 async def _upload_one_file_from_folder(
     file_task: FileToUpload,
     collection: str,
-    base_target_sub_path: Optional[str], 
+    base_target_sub_path: Optional[str],
     api_client: ApiClient,
     config: AppConfig,
     part_concurrency: int,
-    progress: Progress, 
+    progress: Progress,
+    # This ID is for the main folder task, to be advanced after each file.
     overall_folder_task_id: Any
 ):
     """Handles uploading a single file as part of a folder upload."""
+    # Import functions here to avoid circular dependencies
     from .single_file_uploader import handle_single_file_upload
     from .multipart_uploader import handle_multipart_upload
 
     file_task.status = "uploading"
     
+    # Each file gets its own progress bar, nested under the main folder task.
+    file_task.task_id = progress.add_task(f"[dim]{file_task.relative_path}[/dim]", total=file_task.size, start=False, parent=overall_folder_task_id)
+
     effective_api_target_sub_path = base_target_sub_path if base_target_sub_path else ""
-    if file_task.relative_path.parent != Path("."): 
+    if file_task.relative_path.parent != Path("."):
         effective_api_target_sub_path = str(Path(effective_api_target_sub_path) / file_task.relative_path.parent)
     
     try:
-        rich_console.print(f"Starting upload: {file_task.relative_path} ({format_bytes(file_task.size)})")
+        progress.start_task(file_task.task_id)
 
         multipart_threshold_bytes = config.multipart_threshold_gb * (1024**3)
         if file_task.size > multipart_threshold_bytes:
             await handle_multipart_upload(
                 file_path=file_task.local_path, file_size=file_task.size,
-                collection=collection, target_sub_path=effective_api_target_sub_path, 
+                collection=collection, target_sub_path=effective_api_target_sub_path,
                 api_client=api_client, config=config,
                 part_concurrency=part_concurrency,
-                progress=progress, overall_folder_task_id=overall_folder_task_id
+                progress=progress,
+                #  Pass the specific ID for this file's task
+                file_task_id=file_task.task_id
             )
         else:
             await handle_single_file_upload(
                 file_path=file_task.local_path, file_size=file_task.size,
-                collection=collection, target_sub_path=effective_api_target_sub_path, 
+                collection=collection, target_sub_path=effective_api_target_sub_path,
                 api_client=api_client, config=config,
-                progress=progress, overall_folder_task_id=overall_folder_task_id
+                progress=progress,
+                # Pass the specific ID for this file's task
+                task_id=file_task.task_id
             )
         file_task.status = "success"
+        progress.update(file_task.task_id, description=f"[green]✓[/green] {file_task.relative_path}", completed=file_task.size)
 
     except (UploadError, FileProcessingError, APIRequestError) as e:
         logger.error(f"Failed to upload file {file_task.relative_path}: {e}")
         file_task.status = "failed"
         file_task.error_message = str(e)
-        rich_console.print(f"[red]Failed: {file_task.relative_path} - {str(e).splitlines()[0]}[/red]")
+        progress.update(file_task.task_id, description=f"[red]✗[/red] {file_task.relative_path} ([i]{e}[/i])")
     except Exception as e:
         logger.critical(f"Unexpected critical error uploading file {file_task.relative_path}: {e}", exc_info=True)
         file_task.status = "failed"
         file_task.error_message = f"An unexpected critical error occurred: {e}"
-        rich_console.print(f"[bold red]CRITICAL ERROR during upload of {file_task.relative_path}: {e}[/bold red]")
+        progress.update(file_task.task_id, description=f"[bold red]CRITICAL ERROR[/bold red] {file_task.relative_path}")
     finally:
-        # Progress for the overall folder is advanced here, regardless of success or failure.
+        # Advance the main folder task by one file count.
         progress.update(overall_folder_task_id, advance=1)
 
 
 async def process_folder_upload(
     folder_path: Path,
     collection: str,
-    target_sub_path: Optional[str], 
+    target_sub_path: Optional[str],
     api_client: ApiClient,
     config: AppConfig,
     global_args: GlobalArgs,
@@ -164,32 +175,29 @@ async def process_folder_upload(
             raise UploadCancelledError("Upload cancelled by user.")
 
     semaphore = asyncio.Semaphore(file_concurrency)
-    async_tasks: List[asyncio.Task] = [] 
     
-    # This is the single, top-level Progress bar
+    # This is the single, top-level Progress bar manager
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
-        TaskProgressColumn(), 
+        TaskProgressColumn(),
         TimeElapsedColumn(),
         console=rich_console
     ) as progress:
-        folder_task_id = progress.add_task(f"Uploading folder: {folder_path.name}", total=num_files) 
+        # The main task now tracks the NUMBER of files.
+        folder_task_id = progress.add_task(f"[bold]Uploading folder: {folder_path.name}[/bold]", total=num_files)
 
-        async def worker(file_to_upload_item: FileToUpload): 
+        async def worker(file_to_upload_item: FileToUpload):
             async with semaphore:
                 await _upload_one_file_from_folder(
                     file_task=file_to_upload_item, collection=collection,
                     base_target_sub_path=target_sub_path, api_client=api_client, config=config,
                     part_concurrency=part_concurrency,
-                    progress=progress, overall_folder_task_id=folder_task_id
+                    progress=progress, 
+                    overall_folder_task_id=folder_task_id
                 )
 
-        for f_task in files_to_upload_list:
-            task = asyncio.create_task(worker(f_task))
-            async_tasks.append(task)
-            
-        await asyncio.gather(*async_tasks) 
+        await asyncio.gather(*(worker(f_task) for f_task in files_to_upload_list))
 
     # Final summary
     successful_uploads = [f for f in files_to_upload_list if f.status == "success"]
