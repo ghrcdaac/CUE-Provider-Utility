@@ -3,7 +3,7 @@
 import httpx
 import logging
 import json
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 from urllib.parse import urljoin
 
 from .models import (
@@ -16,6 +16,9 @@ from .models import (
     MultipartAbortRequest
 )
 from .exceptions import APIRequestError, ConfigError
+from rich.progress import Progress
+import aiofiles
+from pathlib import Path
 
 try:
     from . import __version__ as app_version
@@ -30,33 +33,38 @@ API_VERSION_PREFIX = "/v2"
 async def log_request_details(request: httpx.Request):
     logger.info(f"--> HTTP Request: {request.method} {request.url}")
     headers_to_log = {k: (v if k.lower() != 'authorization' else 'Bearer [REDACTED]') for k, v in request.headers.items()}
-    logger.info(f"    Headers: {headers_to_log}")
+    logger.info(f"     Headers: {headers_to_log}")
     
     content_type_header = request.headers.get("content-type", "")
     if "multipart/form-data" in content_type_header:
-        logger.info("    Body: [Streaming multipart/form-data for file upload]")
+        logger.info("     Body: [Streaming multipart/form-data for file upload]")
     else:
         try:
             body_content = request.content.decode('utf-8') if request.content else "''"
         except UnicodeDecodeError:
             body_content = f"[Binary content of length {len(request.content)} bytes]"
-        logger.info(f"    Body: {body_content}")
+        logger.info(f"     Body: {body_content}")
 
 async def log_response_details(response: httpx.Response):
     await response.aread()
     request = response.request
     logger.info(f"<-- HTTP Response for {request.method} {request.url}")
-    logger.info(f"    Status: {response.status_code}")
+    logger.info(f"     Status: {response.status_code}")
     headers_to_log = {k: v for k, v in response.headers.items()}
-    logger.info(f"    Headers: {headers_to_log}")
+    logger.info(f"     Headers: {headers_to_log}")
     try:
         body_content = response.content.decode('utf-8') if response.content else "''"
     except UnicodeDecodeError:
         body_content = f"[Binary content of length {len(response.content)} bytes]"
-    logger.info(f"    Body: {body_content}")
+    logger.info(f"     Body: {body_content}")
 
 
 class ApiClient:
+    """Handles all communication with the CUE backend API."""
+    
+    # Define a default chunk size for streaming file reads
+    CHUNK_SIZE = 1024 * 1024 * 4  # 4MB
+
     def __init__(self, config: AppConfig, global_args: GlobalArgs, api_key: str):
         self.config = config
         self.global_args = global_args
@@ -73,6 +81,29 @@ class ApiClient:
             event_hooks=hooks,
             http1=True
         )
+
+  
+    async def read_in_chunks(
+        self,
+        file_path: Path,
+        chunk_size: int = CHUNK_SIZE,
+        progress: Optional[Progress] = None,
+        task_id: Optional[Any] = None
+    ) -> AsyncGenerator[bytes, None]:
+        """
+        Asynchronously reads a file in chunks and yields them.
+        This is a memory-efficient generator for streaming uploads.
+        If a Rich progress bar and task_id are provided, it updates them.
+        """
+        async with aiofiles.open(file_path, "rb") as f:
+            while True:
+                chunk = await f.read(chunk_size)
+                if not chunk:
+                    break
+                if progress and task_id:
+                    progress.update(task_id, advance=len(chunk))
+                yield chunk
+   
 
     def _get_default_headers(self) -> Dict[str, str]:
         return {
@@ -130,17 +161,13 @@ class ApiClient:
                 error_content_text = response.text
                 
                 try:
-                    # Attempt to parse the JSON and get the 'detail' key
                     error_json = response.json()
                     detail_message = error_json.get("detail")
                     if detail_message:
-                        # Use the specific message from the API
                         error_message = detail_message
                     else:
-                        # Fallback if 'detail' key is missing but it's still JSON
                         error_message = f"API Error (HTTP {response.status_code}): {error_content_text}"
                 except json.JSONDecodeError:
-                    # Fallback if the response is not valid JSON (e.g., HTML from a proxy)
                     error_message = f"API request failed with status {response.status_code} ({response.reason_phrase})."
 
                 
