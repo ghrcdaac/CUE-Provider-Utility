@@ -14,6 +14,7 @@ from .exceptions import APIRequestError, FileProcessingError, UploadError
 from .logger_setup import rich_console
 from .models import AppConfig, CompleteSingleRequest, PrepareSingleRequest
 from .utils import calculate_sha256_checksum, get_mime_type
+from .logger_setup import rich_console
 
 logger = logging.getLogger(__name__)
 

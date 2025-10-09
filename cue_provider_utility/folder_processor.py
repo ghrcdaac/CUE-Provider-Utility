@@ -64,6 +64,10 @@ async def scan_folder(
                     continue
 
                 file_size = get_file_size(item)
+                if file_size == 0:
+                  logger.warning(f"Skipping 0 B file: {item.relative_to(folder_path)}")
+                  rich_console.print(f"[yellow]Warning: Skipping file [bold]{item.name}[/bold] because it is 0 B.[/yellow]")
+                  continue
                 relative_path = item.relative_to(folder_path)
                 files_to_upload.append(FileToUpload(item, relative_path, file_size))
                 total_files_for_upload += 1
