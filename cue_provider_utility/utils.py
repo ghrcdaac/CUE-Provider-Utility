@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Any
 import asyncio
+import math
+
 
 import aiofiles
 import puremagic
@@ -50,7 +52,7 @@ async def calculate_sha256_checksum_for_bytes(data: bytes) -> str:
 def get_file_size(file_path: Path) -> int:
     """Gets the size of a file in bytes."""
     try:
-        return file_path.stat().st_size
+        return file_path.resolve().stat().st_size
     except OSError as e:
         logger.error(f"Error getting size of file {file_path}: {e}")
         raise FileProcessingError(f"Could not get size of file {file_path}.", original_exception=e)
@@ -145,12 +147,13 @@ async def validate_file_type(file_path: Path, config: AppConfig) -> None:
 
 
 def format_bytes(size_bytes: int) -> str:
-    """Converts bytes to a human-readable string (KiB, MiB, GiB, TiB)."""
-    if size_bytes == 0: return "0 B"
-    if size_bytes < 1024: return f"{size_bytes} B"
-    for unit in ['KiB', 'MiB', 'GiB', 'TiB']:
-        size_bytes /= 1024.0
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.2f} {unit}"
-    return f"{size_bytes:.2f} PiB"
+    """Converts a size in bytes to a human-readable format."""
+    if size_bytes == 0:
+        return "0 B"
+
+    size_name = ("B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_name[i]}"
 

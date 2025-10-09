@@ -6,6 +6,7 @@ Manages overall progress and error reporting for an upload operation.
 import logging
 from pathlib import Path
 from typing import Optional
+import sys
 
 from .models import AppConfig, GlobalArgs
 from .exceptions import UploadError, FileProcessingError, APIRequestError, ConfigError, IgnoredFileError
@@ -15,6 +16,8 @@ from .multipart_uploader import handle_multipart_upload
 from .folder_processor import process_folder_upload
 from .utils import get_file_size, validate_file_type
 from .ignored_files_handler import is_path_ignored
+from .logger_setup import rich_console
+
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,10 @@ async def process_upload(
             logger.info(f"Processing file upload for: {source_path.name}")
             file_size = get_file_size(source_path)
             multipart_threshold_bytes = config.multipart_threshold_gb * (1024**3)
+
+            if file_size == 0:
+                rich_console.print(f"[yellow]Warning: Skipping file [bold]{source_path.name}[/bold] because it is 0 B.[/yellow]")
+                return
             
             if file_size > multipart_threshold_bytes:
                 await handle_multipart_upload(
