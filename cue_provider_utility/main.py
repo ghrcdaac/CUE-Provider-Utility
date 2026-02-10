@@ -81,9 +81,9 @@ def cli_app(
 
     log_level = "ERROR" if quiet else "DEBUG" if verbose >= 2 else "INFO"
     
-    final_log_path = log_file_override or get_log_file_path()
+    final_log_path = log_file_override or get_log_file_path(config_path_override)
     if log_file_override and log_file_override.is_dir():
-        final_log_path = log_file_override / get_log_file_path().name
+        final_log_path = log_file_override / get_log_file_path(config_path_override).name
 
     setup_logging(log_path=final_log_path, console_log_level=log_level.upper())
 
@@ -335,7 +335,7 @@ def ignore_reset_command(ctx: click.Context):
 def logs_command(ctx: click.Context, lines: Optional[int], raw: bool):
     """Views application logs directly in the terminal."""
     global_args: GlobalArgs = ctx.obj
-    log_file_to_view = global_args.log_file_override or get_log_file_path()
+    log_file_to_view = global_args.log_file_override or get_log_file_path(global_args.config_path_override)
     if not log_file_to_view.exists():
         rich_console.print(f"[red]Log file not found at: {log_file_to_view}[/red]")
         return

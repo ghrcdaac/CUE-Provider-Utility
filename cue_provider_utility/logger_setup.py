@@ -25,9 +25,28 @@ rich_console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 def get_log_file_path(config_path_override: Optional[Path] = None) -> Path:
-    from .models import AppConfig
-    log_dir = AppConfig().log_file_directory
+    """
+    Determines the log file path. 
+    Priority: 
+    1. Path defined in config.toml (via get_config)
+    2. Default system path (via AppConfig defaults)
+    """
+    try:
+        # Import inside function to avoid circular import issues
+        from .config_manager import get_config
+        
+        # Try to load the actual user configuration file
+        cfg = get_config(config_path_override)
+        log_dir = cfg.log_file_directory
+        
+    except Exception:
+        # If config file is corrupt or missing, use  original logic
+        from .models import AppConfig
+        log_dir = AppConfig().log_file_directory
+
+    # Ensure the directory exists (This part stays exactly the same!)
     log_dir.mkdir(parents=True, exist_ok=True)
+    
     return (log_dir / DEFAULT_LOG_FILENAME).resolve()
 
 def setup_logging(

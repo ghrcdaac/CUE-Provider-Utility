@@ -1,7 +1,7 @@
 [tool.poetry]
 # Project metadata, moved from the [project] section for Poetry compatibility.
 name = "cue-provider-utility"
-version = "0.1.0"
+version = "1.1.0"
 description = "CLI utility for uploading data to CUE (Cloud Upload Environment)"
 authors = ["Navaneeth Selvaraj <ns0066@uah.edu>"]
 license = "Apache-2.0"
