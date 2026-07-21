@@ -79,7 +79,8 @@ class ApiClient:
             timeout=DEFAULT_TIMEOUT,
             follow_redirects=True,
             event_hooks=hooks,
-            http1=True
+            http1=True,
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=10)
         )
 
   

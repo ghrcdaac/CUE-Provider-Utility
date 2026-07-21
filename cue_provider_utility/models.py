@@ -28,10 +28,14 @@ class AppConfig(BaseModel):
     multipart_threshold_gb: int = Field(default=1, gt=0)
     multipart_chunk_size_mb: int = Field(default=256, gt=0)
     
-    retry_attempts: int = Field(default=0, ge=0, le=5)
+    retry_attempts: int = Field(default=3, ge=0, le=5)
     
     log_level: str = Field(default="INFO", pattern=r"^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
     log_file_directory: Path = Field(default=Path.home() / ".cue-upload" / "logs")
+    
+    # Failed uploads log path & auto-retry flag
+    failed_log_path: Path = Field(default=Path.home() / ".cue-upload" / "failed_uploads.json")
+    auto_retry: bool = Field(default=False)
     
     file_concurrency: int = Field(default=4, ge=1)
     part_concurrency: int = Field(default=4, ge=1)
@@ -46,16 +50,45 @@ class AppConfig(BaseModel):
     ])
     allowed_mime_types: Optional[List[str]] = None
 
-    @field_validator('log_file_directory', mode='before')
-    def _validate_log_dir(cls, value: Any) -> Path:
+    @field_validator('log_file_directory', 'failed_log_path', mode='before')
+    def _validate_paths(cls, value: Any) -> Path:
         return Path(value).expanduser()
     
-    @field_serializer('log_file_directory', when_used='json-unless-none')
+    @field_serializer('log_file_directory', 'failed_log_path', when_used='json-unless-none')
     def serialize_path_to_str(self, v: Path) -> str:
         return str(v)
 
     class Config:
         validate_assignment = True
+
+# --- Persistent Failed Upload Models ---
+
+class FailedUploadEntry(BaseModel):
+    entry_id: Optional[str] = None
+    session_id: Optional[str] = None
+    file_path: Path
+    collection: str
+    target_sub_path: Optional[str] = None
+    env: str
+    file_size: int
+    content_type: Optional[str] = None
+    checksum: Optional[str] = None
+    file_concurrency: Optional[int] = None
+    part_concurrency: Optional[int] = None
+    error_message: Optional[str] = None
+    timestamp: Optional[str] = None
+
+    @field_validator('file_path', mode='before')
+    def _validate_file_path(cls, value: Any) -> Path:
+        return Path(value).expanduser().resolve()
+
+    @field_serializer('file_path', when_used='json-unless-none')
+    def serialize_file_path(self, v: Path) -> str:
+        return str(v)
+
+class FailedUploadsContainer(BaseModel):
+    version: str = Field(default="1.0")
+    failed_uploads: List[FailedUploadEntry] = Field(default_factory=list)
 
 # --- CLI Context Object ---
 class GlobalArgs(BaseModel):

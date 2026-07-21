@@ -231,6 +231,8 @@ def configure_command(ctx: click.Context, set_key_only: bool):
     settings_to_configure = {
         "default_env": {"prompt": "Default backend environment", "type": click.Choice(['prod', 'uat', 'sit', 'local'])},
         "retry_attempts": {"prompt": "Network retry attempts on failure", "type": click.IntRange(0, 5)},
+        "auto_retry": {"prompt": "Enable automatic retry of failed uploads at end of session", "type": click.BOOL},
+        "failed_log_path": {"prompt": "Path for failed uploads log file", "type": click.Path(path_type=Path)},
         "file_concurrency": {"prompt": "Default concurrent file uploads", "type": click.IntRange(1, 16)},
         "part_concurrency": {"prompt": "Default concurrent part uploads", "type": click.IntRange(1, 16)},
     }
@@ -295,7 +297,6 @@ def ignore_add_command(ctx: click.Context, pattern: str):
     try:
         if add_user_ignore_pattern(pattern, global_args.config_path_override):
             rich_console.print(f"[green]Pattern '{pattern}' added.[/green]")
-            # Tip is added here
             rich_console.print("[dim]Tip: Use wildcards for broad matches (e.g., '*.log' to ignore all log files).[/dim]")
         else:
             rich_console.print(f"[yellow]Pattern '{pattern}' already exists.[/yellow]")
@@ -342,6 +343,47 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool):
     rich_console.print(f"Displaying logs from: [cyan]{log_file_to_view}[/cyan]")
     asyncio.run(view_log_file(log_file_to_view, lines, False, raw))
 
+
+@cli_app.command("retry")
+@click.option("-f", "--failed-log", "failed_log_override", type=click.Path(path_type=Path), help="Path to a custom failed uploads log file.")
+@click.pass_context
+def retry_command(ctx: click.Context, failed_log_override: Optional[Path]):
+    """Retries all failed upload entries saved in the failed uploads log file."""
+    from .failed_uploads_handler import FailedUploadsManager
+    from .uploader import retry_failed_entries
+
+    global_args: GlobalArgs = ctx.obj
+    config = global_args.config
+    target_failed_log = failed_log_override or config.failed_log_path
+
+    if not target_failed_log.exists():
+        rich_console.print(f"[green]No failed uploads log file found at: {target_failed_log}[/green]")
+        return
+
+    failed_entries = asyncio.run(FailedUploadsManager.get_failed_entries(target_failed_log))
+
+    if not failed_entries:
+        rich_console.print(f"[green]No pending failed uploads found in log at {target_failed_log}.[/green]")
+        return
+
+    rich_console.print(f"Found [bold cyan]{len(failed_entries)}[/bold cyan] failed upload item(s) in [dim]{target_failed_log}[/dim]")
+
+    succeeded, failed = asyncio.run(retry_failed_entries(
+        entries=failed_entries,
+        config=config,
+        global_args=global_args,
+        failed_log_path=target_failed_log,
+        retry_rounds=max(1, config.retry_attempts)
+    ))
+
+    if failed == 0:
+        rich_console.print("\n[bold green]✅ All failed uploads were retried and completed successfully![/bold green]")
+    else:
+        rich_console.print(f"\n[bold yellow]Retry complete: {succeeded} succeeded, {failed} still failing.[/bold yellow]")
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     cli_app()
+
 

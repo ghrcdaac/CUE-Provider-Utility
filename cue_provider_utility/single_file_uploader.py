@@ -28,15 +28,23 @@ async def _perform_upload(
     config: AppConfig,
     progress: Progress,
     task_id: Any,
-):
-    """Internal helper function to perform the upload steps with a guaranteed progress bar."""
+    cached_checksum: Optional[str] = None,
+    cached_content_type: Optional[str] = None,
+) -> tuple[str, str]:
+    """Internal helper function to perform the upload steps with a guaranteed progress bar. Returns (checksum, mime_type)."""
     try:
         # Step 1: Checksum and MIME Type
-        progress.update(task_id, description=f"Checksum {file_path.name}")
-        checksum_sha256 = await calculate_sha256_checksum(file_path) # Removed progress from here as it's too fast to show
+        if cached_checksum:
+            checksum_sha256 = cached_checksum
+        else:
+            progress.update(task_id, description=f"Checksum {file_path.name}")
+            checksum_sha256 = await calculate_sha256_checksum(file_path)
 
-        progress.update(task_id, description=f"File type {file_path.name}")
-        mime_type = await get_mime_type(file_path)
+        if cached_content_type:
+            mime_type = cached_content_type
+        else:
+            progress.update(task_id, description=f"File type {file_path.name}")
+            mime_type = await get_mime_type(file_path)
 
         # Step 2: Prepare the upload with the backend
         prepare_payload = PrepareSingleRequest(
@@ -84,6 +92,7 @@ async def _perform_upload(
             content_type=prepare_payload.content_type,
         )
         await api_client.complete_single_upload(payload=complete_payload)
+        return checksum_sha256, mime_type
 
     except (httpx.HTTPError, OSError, FileProcessingError, APIRequestError) as e:
         # Re-raise as a standard UploadError for the folder processor to catch
@@ -99,9 +108,11 @@ async def handle_single_file_upload(
     config: AppConfig,
     progress: Optional[Progress] = None,
     task_id: Optional[Any] = None,
-):
+    cached_checksum: Optional[str] = None,
+    cached_content_type: Optional[str] = None,
+) -> tuple[str, str]:
     """
-    Handles the entire process of uploading a single file directly.
+    Handles the entire process of uploading a single file directly. Returns (checksum, content_type).
     """
     # If this is a standalone upload, create a temporary progress bar.
     if progress is None or task_id is None:
@@ -116,9 +127,16 @@ async def handle_single_file_upload(
             transient=True # Makes the bar disappear on completion
         ) as new_progress:
             new_task_id = new_progress.add_task(f"Uploading {file_path.name}", total=file_size)
-            await _perform_upload(file_path, file_size, collection, target_sub_path, api_client, config, new_progress, new_task_id)
+            result = await _perform_upload(
+                file_path, file_size, collection, target_sub_path, api_client, config,
+                new_progress, new_task_id, cached_checksum, cached_content_type
+            )
         
         rich_console.print(f"   [green]✓[/green] Successfully uploaded [bold cyan]{file_path.name}[/bold cyan].")
+        return result
     else:
         # This is part of a folder upload; use the existing progress and task_id.
-        await _perform_upload(file_path, file_size, collection, target_sub_path, api_client, config, progress, task_id)
+        return await _perform_upload(
+            file_path, file_size, collection, target_sub_path, api_client, config,
+            progress, task_id, cached_checksum, cached_content_type
+        )

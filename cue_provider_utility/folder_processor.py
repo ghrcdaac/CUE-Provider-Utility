@@ -88,45 +88,47 @@ async def _upload_one_file_from_folder(
     api_client: ApiClient,
     config: AppConfig,
     part_concurrency: int,
+    file_concurrency: int,
     progress: Progress,
-    # This ID is for the main folder task, to be advanced after each file.
-    overall_folder_task_id: Any
+    overall_folder_task_id: Any,
+    session_id: Optional[str] = None,
+    env_name: str = "prod",
+    failed_log_path: Optional[Path] = None,
 ):
     """Handles uploading a single file as part of a folder upload."""
-    # Import functions here to avoid circular dependencies
     from .single_file_uploader import handle_single_file_upload
     from .multipart_uploader import handle_multipart_upload
+    from .failed_uploads_handler import FailedUploadsManager
+    from .models import FailedUploadEntry
 
     file_task.status = "uploading"
-    
-    # Each file gets its own progress bar, nested under the main folder task.
     file_task.task_id = progress.add_task(f"[dim]{file_task.relative_path}[/dim]", total=file_task.size, start=False, parent=overall_folder_task_id)
 
     effective_api_target_sub_path = base_target_sub_path if base_target_sub_path else ""
     if file_task.relative_path.parent != Path("."):
         effective_api_target_sub_path = str(Path(effective_api_target_sub_path) / file_task.relative_path.parent)
     
+    checksum: Optional[str] = None
+    content_type: Optional[str] = None
+
     try:
         progress.start_task(file_task.task_id)
-
         multipart_threshold_bytes = config.multipart_threshold_gb * (1024**3)
         if file_task.size > multipart_threshold_bytes:
-            await handle_multipart_upload(
+            checksum, content_type = await handle_multipart_upload(
                 file_path=file_task.local_path, file_size=file_task.size,
                 collection=collection, target_sub_path=effective_api_target_sub_path,
                 api_client=api_client, config=config,
                 part_concurrency=part_concurrency,
                 progress=progress,
-                #  Pass the specific ID for this file's task
                 file_task_id=file_task.task_id
             )
         else:
-            await handle_single_file_upload(
+            checksum, content_type = await handle_single_file_upload(
                 file_path=file_task.local_path, file_size=file_task.size,
                 collection=collection, target_sub_path=effective_api_target_sub_path,
                 api_client=api_client, config=config,
                 progress=progress,
-                # Pass the specific ID for this file's task
                 task_id=file_task.task_id
             )
         file_task.status = "success"
@@ -143,7 +145,24 @@ async def _upload_one_file_from_folder(
         file_task.error_message = f"An unexpected critical error occurred: {e}"
         progress.update(file_task.task_id, description=f"[bold red]CRITICAL ERROR[/bold red] {file_task.relative_path}")
     finally:
-        # Advance the main folder task by one file count.
+        if file_task.status == "failed" and failed_log_path:
+            try:
+                entry = FailedUploadEntry(
+                    session_id=session_id,
+                    file_path=file_task.local_path,
+                    collection=collection,
+                    target_sub_path=effective_api_target_sub_path,
+                    env=env_name,
+                    file_size=file_task.size,
+                    content_type=content_type,
+                    checksum=checksum,
+                    file_concurrency=file_concurrency,
+                    part_concurrency=part_concurrency,
+                    error_message=file_task.error_message,
+                )
+                await FailedUploadsManager.add_failed_entry(entry, failed_log_path)
+            except Exception as log_err:
+                logger.error(f"Failed to write failed upload entry to log: {log_err}")
         progress.update(overall_folder_task_id, advance=1)
 
 
@@ -156,10 +175,10 @@ async def process_folder_upload(
     global_args: GlobalArgs,
     file_concurrency: int,
     part_concurrency: int,
-    auto_approve: bool
+    auto_approve: bool,
+    session_id: Optional[str] = None,
 ):
     """Orchestrates the upload of all files within a folder."""
-    
     files_to_upload_list, num_files, total_size = await scan_folder(folder_path, config, global_args.config_path_override)
 
     if not files_to_upload_list:
@@ -179,8 +198,9 @@ async def process_folder_upload(
             raise UploadCancelledError("Upload cancelled by user.")
 
     semaphore = asyncio.Semaphore(file_concurrency)
+    selected_env_name = global_args.env_cli or config.default_env
+    failed_log_path = config.failed_log_path
     
-    # This is the single, top-level Progress bar manager
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -188,7 +208,6 @@ async def process_folder_upload(
         TimeElapsedColumn(),
         console=rich_console
     ) as progress:
-        # The main task now tracks the NUMBER of files.
         folder_task_id = progress.add_task(f"[bold]Uploading folder: {folder_path.name}[/bold]", total=num_files)
 
         async def worker(file_to_upload_item: FileToUpload):
@@ -196,14 +215,16 @@ async def process_folder_upload(
                 await _upload_one_file_from_folder(
                     file_task=file_to_upload_item, collection=collection,
                     base_target_sub_path=target_sub_path, api_client=api_client, config=config,
-                    part_concurrency=part_concurrency,
+                    part_concurrency=part_concurrency, file_concurrency=file_concurrency,
                     progress=progress, 
-                    overall_folder_task_id=folder_task_id
+                    overall_folder_task_id=folder_task_id,
+                    session_id=session_id,
+                    env_name=selected_env_name,
+                    failed_log_path=failed_log_path
                 )
 
         await asyncio.gather(*(worker(f_task) for f_task in files_to_upload_list))
 
-    # Final summary
     successful_uploads = [f for f in files_to_upload_list if f.status == "success"]
     failed_uploads = [f for f in files_to_upload_list if f.status == "failed"]
     
