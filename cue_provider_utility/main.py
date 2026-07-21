@@ -22,12 +22,13 @@ from .ignored_files_handler import (
     reset_user_ignore_patterns,
 )
 from .uploader import process_upload
+from . import __version__
 from .models import GlobalArgs
 from .exceptions import CUEProviderError, UploadCancelledError, AuthError
 
 
 @click.group(context_settings=dict(help_option_names=['-h', '--help']))
-@click.version_option(package_name='CUE-Provider-Utility')
+@click.version_option(__version__, package_name='CUE-Provider-Utility')
 @click.option(
     '-t', '--token', 'api_key_cli',
     metavar='TEXT',

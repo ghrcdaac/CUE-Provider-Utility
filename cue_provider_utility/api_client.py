@@ -23,7 +23,7 @@ from pathlib import Path
 try:
     from . import __version__ as app_version
 except ImportError:
-    app_version = "0.1.0"
+    app_version = "1.3.0"
 
 logger = logging.getLogger(__name__)
 

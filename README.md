@@ -1,5 +1,5 @@
 # CUE Provider Utility (cue-upload)
-**Version:** 0.1.0  
+**Version:** 1.3.0  
 **License:** Apache-2.0  
 
 ## Overview

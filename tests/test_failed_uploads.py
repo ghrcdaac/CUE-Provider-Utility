@@ -78,3 +78,14 @@ async def test_manual_entry_without_ids():
         assert manual_entry.entry_id is not None
         assert manual_entry.timestamp is not None
         assert manual_entry.collection == "MANUAL_COLLECTION"
+
+@pytest.mark.asyncio
+async def test_get_mime_type_resolution():
+    from cue_provider_utility.utils import get_mime_type
+    
+    assert await get_mime_type(Path("sample.nc")) == "application/x-netcdf"
+    assert await get_mime_type(Path("sample.nc.gz")) == "application/x-netcdf"
+    assert await get_mime_type(Path("sample.dat.gz")) == "application/gzip"
+    assert await get_mime_type(Path("sample.h5")) == "application/x-hdf5"
+    assert await get_mime_type(Path("sample.zip")) in ["application/zip", "application/x-zip-compressed"]
+
