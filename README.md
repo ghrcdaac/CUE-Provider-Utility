@@ -1,5 +1,5 @@
 # CUE Provider Utility (cue-upload)
-**Version:** 0.1.0  
+**Version:** 1.3.1  
 **License:** Apache-2.0  
 
 ## Overview
@@ -94,6 +94,44 @@ cue-upload upload -P /path/to/your/folder/ -c your_collection_name -tp remote/su
 # Run the interactive configuration wizard
 cue-upload configure
 ```
+
+### Retrying Failed Uploads
+When upload attempts fail (due to network glitches or server availability), details are saved to `~/.cue-upload/failed_uploads.json`. You can retry all failed uploads anytime:
+
+```bash
+# Retry all pending failed uploads from the default log file
+cue-upload retry
+
+# Retry failed uploads from a custom log file
+cue-upload retry -f /path/to/custom_failed_uploads.json
+```
+
+#### Failed Uploads Log Schema (`failed_uploads.json`)
+The failed uploads log uses a simple JSON structure so you can inspect or manually add entries if needed:
+
+```json
+{
+  "version": "1.0",
+  "failed_uploads": [
+    {
+      "entry_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "session_id": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+      "file_path": "C:/data/granule_01.nc",
+      "collection": "MY_COLLECTION",
+      "target_sub_path": "subfolder/2026",
+      "env": "prod",
+      "file_size": 104857600,
+      "content_type": "application/x-netcdf",
+      "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "file_concurrency": 4,
+      "part_concurrency": 4,
+      "error_message": "HTTP 503 Service Unavailable",
+      "timestamp": "2026-07-21T13:37:19Z"
+    }
+  ]
+}
+```
+*Note: When creating manual entries, `entry_id`, `session_id`, `checksum`, `content_type`, and `timestamp` can be left blank or `null`.*
 
 ### Viewing Logs
 ```bash

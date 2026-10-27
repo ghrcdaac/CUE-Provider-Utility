@@ -3,8 +3,11 @@
 import httpx
 import logging
 import json
-from typing import Optional, Dict, Any, List, AsyncGenerator
+from typing import Optional, Dict, Any, List, AsyncGenerator, TypeVar, Type, overload
 from urllib.parse import urljoin
+from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 from .models import (
     AppConfig, GlobalArgs,
@@ -23,14 +26,14 @@ from pathlib import Path
 try:
     from . import __version__ as app_version
 except ImportError:
-    app_version = "0.1.0"
+    app_version = "1.3.1"
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30.0
 API_VERSION_PREFIX = "/v2"
 
-async def log_request_details(request: httpx.Request):
+async def log_request_details(request: httpx.Request) -> None:
     logger.info(f"--> HTTP Request: {request.method} {request.url}")
     headers_to_log = {k: (v if k.lower() != 'authorization' else 'Bearer [REDACTED]') for k, v in request.headers.items()}
     logger.info(f"     Headers: {headers_to_log}")
@@ -45,7 +48,7 @@ async def log_request_details(request: httpx.Request):
             body_content = f"[Binary content of length {len(request.content)} bytes]"
         logger.info(f"     Body: {body_content}")
 
-async def log_response_details(response: httpx.Response):
+async def log_response_details(response: httpx.Response) -> None:
     await response.aread()
     request = response.request
     logger.info(f"<-- HTTP Response for {request.method} {request.url}")
@@ -62,10 +65,10 @@ async def log_response_details(response: httpx.Response):
 class ApiClient:
     """Handles all communication with the CUE backend API."""
     
-    # Define a default chunk size for streaming file reads
-    CHUNK_SIZE = 1024 * 1024 * 4  # 4MB
+    # Define a default chunk size for streaming file reads (1MB provides smooth progress updates)
+    CHUNK_SIZE = 1024 * 1024  # 1MB
 
-    def __init__(self, config: AppConfig, global_args: GlobalArgs, api_key: str):
+    def __init__(self, config: AppConfig, global_args: GlobalArgs, api_key: str) -> None:
         self.config = config
         self.global_args = global_args
         self.api_key = api_key
@@ -79,7 +82,8 @@ class ApiClient:
             timeout=DEFAULT_TIMEOUT,
             follow_redirects=True,
             event_hooks=hooks,
-            http1=True
+            http1=True,
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=10)
         )
 
   
@@ -100,7 +104,7 @@ class ApiClient:
                 chunk = await f.read(chunk_size)
                 if not chunk:
                     break
-                if progress and task_id:
+                if progress is not None and task_id is not None:
                     progress.update(task_id, advance=len(chunk))
                 yield chunk
    
@@ -132,13 +136,38 @@ class ApiClient:
         except Exception as e:
             raise ConfigError(f"Could not determine base URL for environment '{env}': {e}")
 
+    @overload
+    async def _request(
+        self,
+        method: str,
+        versioned_endpoint_path: str,
+        json_payload: Optional[Dict[str, Any]] = ...,
+        expected_status_codes: Optional[List[int]] = ...,
+        *,
+        response_model: Type[T],
+        files: Optional[Dict[str, Any]] = ...,
+    ) -> T:
+        ...
+
+    @overload
+    async def _request(
+        self,
+        method: str,
+        versioned_endpoint_path: str,
+        json_payload: Optional[Dict[str, Any]] = ...,
+        expected_status_codes: Optional[List[int]] = ...,
+        response_model: None = ...,
+        files: Optional[Dict[str, Any]] = ...,
+    ) -> httpx.Response:
+        ...
+
     async def _request(
         self,
         method: str,
         versioned_endpoint_path: str,
         json_payload: Optional[Dict[str, Any]] = None,
         expected_status_codes: Optional[List[int]] = None,
-        response_model: Optional[Any] = None,
+        response_model: Optional[Type[T]] = None,
         files: Optional[Dict[str, Any]] = None
     ) -> Any:
         if expected_status_codes is None:
@@ -259,5 +288,5 @@ class ApiClient:
             logger.error(f"S3 presigned PUT HTTP error: {e}")
             raise APIRequestError(f"S3 upload failed for {e}", original_exception=e)
 
-    async def close(self):
+    async def close(self) -> None:
         await self.http_client.aclose()

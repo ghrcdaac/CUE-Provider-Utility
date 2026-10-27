@@ -5,10 +5,9 @@ from pathlib import Path
 from typing import Optional, Any
 import asyncio
 import math
-
+import mimetypes
 
 import aiofiles
-import puremagic
 from rich.progress import Progress
 
 from .exceptions import FileProcessingError
@@ -18,6 +17,27 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CHUNK_SIZE_BYTES = 1024 * 1024 * 32  # 32 MiB
 SUSPICIOUS_EXTENSIONS = {'.exe', '.dll', '.so', '.dmg', '.sh', '.bat'}
+
+# Initialize system mime types
+mimetypes.init()
+
+# Register science & compound data extensions matching AWS CLI conventions
+SCIENCE_MIME_TYPES = {
+    '.nc': 'application/x-netcdf',
+    '.nc4': 'application/x-netcdf',
+    '.hdf': 'application/x-hdf',
+    '.h4': 'application/x-hdf',
+    '.h5': 'application/x-hdf5',
+    '.he5': 'application/x-hdf5',
+    '.dat': 'application/octet-stream',
+    '.geojson': 'application/geo+json',
+    '.tif': 'image/tiff',
+    '.tiff': 'image/tiff',
+}
+
+for ext, mime in SCIENCE_MIME_TYPES.items():
+    mimetypes.add_type(mime, ext)
+
 
 async def calculate_sha256_checksum(
     file_path: Path,
@@ -42,6 +62,7 @@ async def calculate_sha256_checksum(
         logger.error(f"Error reading file {file_path} for SHA256 checksum: {e}")
         raise FileProcessingError(f"Could not read file {file_path} to calculate checksum.", original_exception=e)
 
+
 async def calculate_sha256_checksum_for_bytes(data: bytes) -> str:
     """Calculates SHA256 checksum for a bytes object, returns Base64 encoded."""
     sha256_hash = hashlib.sha256()
@@ -57,19 +78,36 @@ def get_file_size(file_path: Path) -> int:
         logger.error(f"Error getting size of file {file_path}: {e}")
         raise FileProcessingError(f"Could not get size of file {file_path}.", original_exception=e)
 
+
 async def get_mime_type(file_path: Path) -> str:
     """
-    Determines the MIME type of a file using puremagic asynchronously.
-    Falls back to common extensions or application/octet-stream.
+    Determines the MIME type of a file using Python's standard mimetypes library (matching AWS CLI / boto3).
+    Handles compound extensions (.dat.gz, .nc.gz) and falls back to a local extension map or application/octet-stream.
     """
-    try:
-        mime = await asyncio.to_thread(puremagic.from_file, str(file_path), mime=True)
-        if mime:
-            logger.debug(f"Determined MIME type for {file_path.name}: {mime} (using puremagic)")
-            return mime
-    except Exception as e:
-        logger.warning(f"puremagic failed for {file_path.name}: {e}. Falling back to extension map.")
+    filename_lower = file_path.name.lower()
 
+    # 1. Compound / double extension check (e.g., .nc.gz, .dat.gz, .tar.gz, .dat.zip)
+    compound_ext_map = {
+        '.nc.gz': 'application/x-netcdf',
+        '.h5.gz': 'application/x-hdf5',
+        '.hdf.gz': 'application/x-hdf',
+        '.dat.gz': 'application/gzip',
+        '.dat.zip': 'application/zip',
+        '.tar.gz': 'application/x-tar',
+        '.tgz': 'application/gzip',
+    }
+    for c_ext, c_mime in compound_ext_map.items():
+        if filename_lower.endswith(c_ext):
+            logger.debug(f"Determined MIME type for {file_path.name}: {c_mime} (matched compound extension '{c_ext}')")
+            return c_mime
+
+    # 2. Primary AWS CLI method: mimetypes.guess_type
+    guessed_type, _ = mimetypes.guess_type(str(file_path))
+    if guessed_type:
+        logger.debug(f"Determined MIME type for {file_path.name}: {guessed_type} (using mimetypes)")
+        return guessed_type
+
+    # 3. Local lookup table fallback
     ext_map = {
         # Archives
         '.zip': 'application/zip',
@@ -104,9 +142,9 @@ async def get_mime_type(file_path: Path) -> str:
         '.nc': 'application/x-netcdf',
         '.hdf': 'application/x-hdf',
         '.h4': 'application/x-hdf',
-        '.h5': 'application/x-hdf',
-        '.img': 'application/octet-stream', # .img is generic, octet-stream is safe
-        '.shp': 'application/octet-stream', # .shp is often part of a set, octet-stream is safe
+        '.h5': 'application/x-hdf5',
+        '.img': 'application/octet-stream',
+        '.shp': 'application/octet-stream',
         '.geojson': 'application/geo+json',
 
         # Other
@@ -114,11 +152,12 @@ async def get_mime_type(file_path: Path) -> str:
     }
     ext = file_path.suffix.lower()
     if ext in ext_map:
-        logger.debug(f"Determined MIME type for {file_path.name}: {ext_map[ext]} (using fallback map)")
+        logger.debug(f"Determined MIME type for {file_path.name}: {ext_map[ext]} (using local fallback map)")
         return ext_map[ext]
 
     logger.warning(f"Could not determine MIME type for {file_path.name}. Defaulting to application/octet-stream.")
     return "application/octet-stream"
+
 
 async def validate_file_type(file_path: Path, config: AppConfig) -> None:
     """
@@ -156,4 +195,3 @@ def format_bytes(size_bytes: int) -> str:
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
     return f"{s} {size_name[i]}"
-
