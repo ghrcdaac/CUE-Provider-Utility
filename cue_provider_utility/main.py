@@ -98,7 +98,60 @@ def cli_app(
         sys.exit(1)
 
 
+def add_global_options(f):
+    """Decorator to add global options (-t, --env, --config, --log-file, -v, -q) to subcommands."""
+    f = click.option('-t', '--token', 'api_key_cli_sub', metavar='TEXT', envvar="CUE_UPLOAD_API_TOKEN", help="Authentication API key. Overrides all other sources.")(f)
+    f = click.option('--env', 'env_sub', type=click.Choice(['prod', 'uat', 'sit', 'local'], case_sensitive=False), help="Target backend environment. Overrides default_env in config.")(f)
+    f = click.option('--config', 'config_path_override_sub', type=click.Path(dir_okay=False, path_type=Path), help="Path to a custom configuration file.")(f)
+    f = click.option('--log-file', 'log_file_override_sub', type=click.Path(path_type=Path), help="Path to a custom log file or directory.")(f)
+    f = click.option('-v', '--verbose', 'verbose_sub', count=True, help="Increase console output verbosity.")(f)
+    f = click.option('-q', '--quiet', 'quiet_sub', is_flag=True, help="Minimal console output.")(f)
+    return f
+
+def sync_global_options(
+    ctx: click.Context,
+    api_key_cli_sub: Optional[str] = None,
+    env_sub: Optional[str] = None,
+    config_path_override_sub: Optional[Path] = None,
+    log_file_override_sub: Optional[Path] = None,
+    verbose_sub: int = 0,
+    quiet_sub: bool = False,
+):
+    """Synchronizes any subcommand-level global options into the ctx.obj GlobalArgs."""
+    global_args: GlobalArgs = ctx.obj
+    if api_key_cli_sub:
+        global_args.api_key_cli = api_key_cli_sub
+    if env_sub:
+        global_args.env_cli = env_sub
+    if config_path_override_sub:
+        global_args.config_path_override = config_path_override_sub
+    if log_file_override_sub:
+        global_args.log_file_override = log_file_override_sub
+    if verbose_sub > 0:
+        global_args.verbose_level = max(global_args.verbose_level, verbose_sub)
+    if quiet_sub:
+        global_args.quiet_mode = quiet_sub
+
+    if config_path_override_sub or env_sub:
+        try:
+            cfg = get_config(global_args.config_path_override)
+            global_args.config = cfg
+            if not global_args.env_cli and cfg.default_env:
+                global_args.env_cli = cfg.default_env
+        except CUEProviderError as e:
+            rich_console.print(f"[bold red]Configuration error: {e}[/bold red]")
+            sys.exit(1)
+
+    if log_file_override_sub or verbose_sub > 0 or quiet_sub:
+        log_level = "ERROR" if global_args.quiet_mode else "DEBUG" if global_args.verbose_level >= 2 else "INFO"
+        final_log_path = global_args.log_file_override or get_log_file_path(global_args.config_path_override)
+        if global_args.log_file_override and global_args.log_file_override.is_dir():
+            final_log_path = global_args.log_file_override / get_log_file_path(global_args.config_path_override).name
+        setup_logging(log_path=final_log_path, console_log_level=log_level.upper())
+
+
 @cli_app.command("upload")
+@add_global_options
 @click.option('-P', '--path', 'upload_path', type=click.Path(exists=True, readable=True, path_type=Path), required=True, help="Local file or directory path to be uploaded.")
 @click.option('-c', '--collection', type=str, required=True, help="Name of the target collection in the backend system.")
 @click.option('-tp', '--target-path', type=str, help="User-defined sub-path within the collection for organization.")
@@ -106,8 +159,23 @@ def cli_app(
 @click.option('-pc', '--part-concurrency', type=click.IntRange(min=1), help="Max concurrent parts for a single multipart file.")
 @click.option('-y', '--auto-approve', is_flag=True, help="Skip confirmation prompt for folder uploads.")
 @click.pass_context
-def upload_command(ctx: click.Context, upload_path: Path, collection: str, target_path: Optional[str], file_concurrency: Optional[int], part_concurrency: Optional[int], auto_approve: bool):
+def upload_command(
+    ctx: click.Context,
+    upload_path: Path,
+    collection: str,
+    target_path: Optional[str],
+    file_concurrency: Optional[int],
+    part_concurrency: Optional[int],
+    auto_approve: bool,
+    api_key_cli_sub: Optional[str],
+    env_sub: Optional[str],
+    config_path_override_sub: Optional[Path],
+    log_file_override_sub: Optional[Path],
+    verbose_sub: int,
+    quiet_sub: bool,
+):
     """Uploads files or directories to CUE."""
+    sync_global_options(ctx, api_key_cli_sub, env_sub, config_path_override_sub, log_file_override_sub, verbose_sub, quiet_sub)
     global_args: GlobalArgs = ctx.obj
     config = global_args.config
 
@@ -230,7 +298,7 @@ def configure_command(ctx: click.Context, set_key_only: bool):
 
     # --- General Settings ---
     settings_to_configure = {
-        "default_env": {"prompt": "Default backend environment", "type": click.Choice(['prod', 'uat', 'sit', 'local'])},
+        "default_env": {"prompt": "Default backend environment", "type": click.Choice(['prod', 'uat', 'sit', 'local'], case_sensitive=False)},
         "retry_attempts": {"prompt": "Network retry attempts on failure", "type": click.IntRange(0, 5)},
         "auto_retry": {"prompt": "Enable automatic retry of failed uploads at end of session", "type": click.BOOL},
         "failed_log_path": {"prompt": "Path for failed uploads log file", "type": click.Path(path_type=Path)},
@@ -247,21 +315,43 @@ def configure_command(ctx: click.Context, set_key_only: bool):
             prompt_parts.append(f"[dim](options: {', '.join(setting_type.choices)})[/dim]")
         elif isinstance(setting_type, click.IntRange):
             prompt_parts.append(f"[dim](range: {setting_type.min}-{setting_type.max})[/dim]")
+        elif setting_type == click.BOOL:
+            prompt_parts.append("[dim](options: true/false or y/n)[/dim]")
         
         rich_console.print(" ".join(prompt_parts))
         
         while True:
             try:
                 prompt_indicator = f"  (current: {current_value}) > "
-                value_str = click.prompt(prompt_indicator, default=str(current_value), show_default=False)
-                new_value = current_value if value_str == str(current_value) else setting_type.convert(value_str, None, None)
+                raw_input = click.prompt(prompt_indicator, default=str(current_value), show_default=False)
+                input_str = raw_input.strip().lower()
+                
+                if input_str == str(current_value).lower():
+                    new_value = current_value
+                elif setting_type == click.BOOL:
+                    if input_str in ('true', 'yes', 'y', '1'):
+                        new_value = True
+                    elif input_str in ('false', 'no', 'n', '0'):
+                        new_value = False
+                    else:
+                        raise ValueError("Please enter 'true', 'false', 'y', or 'n'.")
+                elif isinstance(setting_type, click.Choice):
+                    valid_choices = [c.lower() for c in setting_type.choices]
+                    if input_str not in valid_choices:
+                        raise ValueError(f"Please select from: {', '.join(setting_type.choices)}")
+                    new_value = input_str
+                else:
+                    new_value = setting_type.convert(raw_input, None, None)
                 
                 if new_value != current_value:
                     save_config_value(key, new_value, global_args.config_path_override)
                     setattr(config, key, new_value)
                 break
-            except click.exceptions.BadParameter as e:
-                rich_console.print(f"  [red]Invalid value: {e}. Please try again.[/red]")
+            except Exception as e:
+                err_msg = str(e)
+                if isinstance(e, click.exceptions.BadParameter):
+                    err_msg = e.format_message()
+                rich_console.print(f"  [red]Invalid value: {err_msg} Please try again.[/red]")
         rich_console.print("-" * 20)
 
     # --- API Key Settings handled last ---
@@ -346,13 +436,24 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool):
 
 
 @cli_app.command("retry")
+@add_global_options
 @click.option("-f", "--failed-log", "failed_log_override", type=click.Path(path_type=Path), help="Path to a custom failed uploads log file.")
 @click.pass_context
-def retry_command(ctx: click.Context, failed_log_override: Optional[Path]):
+def retry_command(
+    ctx: click.Context,
+    failed_log_override: Optional[Path],
+    api_key_cli_sub: Optional[str],
+    env_sub: Optional[str],
+    config_path_override_sub: Optional[Path],
+    log_file_override_sub: Optional[Path],
+    verbose_sub: int,
+    quiet_sub: bool,
+):
     """Retries all failed upload entries saved in the failed uploads log file."""
     from .failed_uploads_handler import FailedUploadsManager
     from .uploader import retry_failed_entries
 
+    sync_global_options(ctx, api_key_cli_sub, env_sub, config_path_override_sub, log_file_override_sub, verbose_sub, quiet_sub)
     global_args: GlobalArgs = ctx.obj
     config = global_args.config
     target_failed_log = failed_log_override or config.failed_log_path

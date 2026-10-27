@@ -138,11 +138,15 @@ async def _upload_one_file_from_folder(
         logger.error(f"Failed to upload file {file_task.relative_path}: {e}")
         file_task.status = "failed"
         file_task.error_message = str(e)
+        checksum = getattr(e, 'checksum', checksum)
+        content_type = getattr(e, 'content_type', content_type)
         progress.update(file_task.task_id, description=f"[red]✗[/red] {file_task.relative_path} ([i]{e}[/i])")
     except Exception as e:
         logger.critical(f"Unexpected critical error uploading file {file_task.relative_path}: {e}", exc_info=True)
         file_task.status = "failed"
         file_task.error_message = f"An unexpected critical error occurred: {e}"
+        checksum = getattr(e, 'checksum', checksum)
+        content_type = getattr(e, 'content_type', content_type)
         progress.update(file_task.task_id, description=f"[bold red]CRITICAL ERROR[/bold red] {file_task.relative_path}")
     finally:
         if file_task.status == "failed" and failed_log_path:

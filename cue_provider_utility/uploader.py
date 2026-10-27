@@ -192,6 +192,8 @@ async def process_upload(
                     )
             except Exception as e:
                 upload_error_occurred = True
+                checksum_val = getattr(e, 'checksum', checksum)
+                content_type_val = getattr(e, 'content_type', content_type)
                 entry = FailedUploadEntry(
                     session_id=session_id,
                     file_path=source_path,
@@ -199,8 +201,8 @@ async def process_upload(
                     target_sub_path=target_sub_path,
                     env=selected_env_name,
                     file_size=file_size,
-                    content_type=content_type,
-                    checksum=checksum,
+                    content_type=content_type_val,
+                    checksum=checksum_val,
                     file_concurrency=file_concurrency,
                     part_concurrency=part_concurrency,
                     error_message=str(e),

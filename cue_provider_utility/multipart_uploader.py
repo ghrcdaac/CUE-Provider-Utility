@@ -119,7 +119,7 @@ async def handle_multipart_upload(
     if cached_content_type:
         mime_type = cached_content_type
     else:
-        if progress and file_task_id:
+        if progress is not None and file_task_id is not None:
             progress.update(file_task_id, description="[bold green]Determining file type...[/]")
             mime_type = await get_mime_type(file_path)
         else:
@@ -128,7 +128,7 @@ async def handle_multipart_upload(
 
     start_payload = MultipartStartRequest(file_name=file_path.name, collection_name=collection, content_type=mime_type, collection_path=target_sub_path)
     
-    if progress and file_task_id:
+    if progress is not None and file_task_id is not None:
         progress.update(file_task_id, description="[bold green]Initiating upload...[/]")
         start_response = await api_client.start_multipart(start_payload)
     else:
@@ -145,7 +145,7 @@ async def handle_multipart_upload(
     if cached_checksum:
         checksum_result = cached_checksum
         # Run part uploads directly
-        if progress and file_task_id:
+        if progress is not None and file_task_id is not None:
             prog = progress
             upload_progress_task_id = file_task_id
             prog.reset(upload_progress_task_id, total=file_size, description=f"Uploading {file_path.name}")
@@ -155,7 +155,7 @@ async def handle_multipart_upload(
                 upload_progress_task_id = prog.add_task(f"Uploading {file_path.name}", total=file_size)
                 upload_result = await _run_all_part_uploads(part_tasks, api_client, config, part_concurrency, s3_upload_id, str(file_id), prog, upload_progress_task_id)
     else:
-        if progress and file_task_id:
+        if progress is not None and file_task_id is not None:
             prog = progress
             upload_progress_task_id = file_task_id
             checksum_progress_task_id = prog.add_task(f"Checksum {file_path.name}", total=file_size)
@@ -206,7 +206,7 @@ async def handle_multipart_upload(
         final_file_size=file_size, collection_path=target_sub_path, content_type=mime_type
     )
 
-    if progress and file_task_id:
+    if progress is not None and file_task_id is not None:
         progress.update(file_task_id, description="[bold green]Completing upload...[/]")
         await api_client.complete_multipart(complete_payload)
     else:
