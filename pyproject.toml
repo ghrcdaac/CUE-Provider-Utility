@@ -20,6 +20,8 @@ pydantic = ">=2.5.0,<3.0.0"
 toml = ">=0.10.2,<0.11.0"
 rich = ">=13.7.0,<14.0.0"
 certifi = ">=2026.10.19"
+anyio = ">=4.14.2"
+pygments = ">=2.20.0"
 
 [tool.poetry.group.dev.dependencies]
 # Dependencies used only for development (testing, linting, formatting).
