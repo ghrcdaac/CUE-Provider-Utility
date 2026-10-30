@@ -175,6 +175,28 @@ cue-upload ignore reset
 - `-q`: Quiet mode, showing only critical errors.  
 - `--config /path/to/config.toml`: Use a custom configuration file.  
 
+## Standalone binaries
+Self-contained builds (no Python needed) are produced by the `Release binaries` GitHub Actions
+workflow, one archive per platform, each with a `SHA256SUMS` file and build provenance:
+
+| Platform | Archive |
+| --- | --- |
+| Windows x64 | `cue-upload-x86_64-pc-windows-msvc.zip` |
+| macOS Apple silicon | `cue-upload-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `cue-upload-x86_64-apple-darwin.tar.gz` |
+| Linux x64 (glibc 2.35+) | `cue-upload-x86_64-unknown-linux-gnu.tar.gz` |
+
+Unpack the archive and run `cue-upload/cue-upload` (or `cue-upload.exe`). The folder must stay together
+(one-dir build for fast start-up). Verify downloads with `sha256sum -c SHA256SUMS`.
+
+Build locally:
+```bash
+pip install "pyinstaller>=6.10,<7"
+cd packaging && pyinstaller cue-upload.spec --noconfirm --clean --distpath ../dist --workpath ../build && cd ..
+python packaging/smoke_test.py dist/cue-upload/cue-upload      # .exe on Windows
+python packaging/package.py x86_64-unknown-linux-gnu          # archive + SHA256SUMS
+```
+
 ## Development
 ### Running Tests
 Tests are located in the `tests/` directory and can be run with pytest.
