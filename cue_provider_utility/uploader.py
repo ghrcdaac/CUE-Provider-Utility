@@ -1,4 +1,6 @@
 import logging
+
+import click
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -9,11 +11,21 @@ from .exceptions import (
     APIRequestError,
     ConfigError,
     IgnoredFileError,
+    UploadCancelledError,
 )
 from .api_client import ApiClient
 from .single_file_uploader import handle_single_file_upload
 from .multipart_uploader import handle_multipart_upload
-from .folder_processor import process_folder_upload, remote_path, report_file_failure
+from .folder_processor import (
+    FileToUpload,
+    ScanCounts,
+    iter_scan_folder,
+    process_batch,
+    process_folder_upload,
+    remote_path,
+    report_file_failure,
+    scan_event,
+)
 from .utils import get_file_size, validate_file_type
 from .ignored_files_handler import is_path_ignored
 from .failed_uploads_handler import FailedUploadsManager
@@ -353,6 +365,9 @@ async def process_upload(
                 f"Source path is not a file or directory: {source_path}"
             )
 
+    except (UploadCancelledError, click.ClickException):
+        # Declined confirmation / cancel / usage problems go back to the command.
+        raise
     except (
         UploadError,
         FileProcessingError,
@@ -373,7 +388,134 @@ async def process_upload(
             await api_client.close()
         logger.debug("process_upload primary pass finished.")
 
-    # --- End of Session Handling ---
+    await finish_session(session_id, config, global_args)
+
+
+class UploadItem:
+    """One ``-P`` path or manifest entry; ``target_path`` overrides ``-tp``."""
+
+    def __init__(
+        self, path: Path, target_path: Optional[str] = None, from_manifest: bool = False
+    ) -> None:
+        self.path = path
+        self.target_path = (
+            target_path.replace("\\", "/").strip("/") if target_path else target_path
+        )
+        self.from_manifest = from_manifest
+
+
+async def _collect_items(
+    items: List[UploadItem],
+    target_sub_path: Optional[str],
+    config: AppConfig,
+    global_args: GlobalArgs,
+) -> List[FileToUpload]:
+    """Scans every item (folders stream; files are checked like folder entries)."""
+    counts = ScanCounts()
+    files: List[FileToUpload] = []
+    override = global_args.config_path_override
+    for item in items:
+        target = item.target_path if item.target_path is not None else target_sub_path
+        path = item.path
+        if path.is_dir():
+            async for f in iter_scan_folder(
+                path, config, override, counts, target, item.from_manifest
+            ):
+                files.append(f)
+            continue
+        rel = Path(path.name)
+        if not path.is_file():
+            rich_console.print(
+                f"[yellow]Warning: Skipped [bold]{path}[/bold]: not found.[/yellow]"
+            )
+            counts.rejected += 1
+            scan_event(path, rel, 0, "rejected", "NOT_FOUND")
+            continue
+        if is_path_ignored(path, base_path=path.parent, config_path_override=override):
+            rich_console.print(
+                f"[yellow]Warning: Skipped file [bold]{path.name}[/bold]: matches an ignore pattern.[/yellow]"
+            )
+            counts.ignored += 1
+            scan_event(path, rel, None, "ignored", "IGNORED")
+            continue
+        try:
+            await validate_file_type(path, config)
+        except FileProcessingError as e:
+            rich_console.print(
+                f"[yellow]Warning: Skipped file [bold]{path.name}[/bold]. Reason: {e}[/yellow]"
+            )
+            counts.rejected += 1
+            scan_event(path, rel, None, "rejected", "FILE_TYPE_DENIED")
+            continue
+        size = get_file_size(path)
+        if size == 0:
+            rich_console.print(
+                f"[yellow]Warning: Skipping file [bold]{path.name}[/bold] because it is 0 B.[/yellow]"
+            )
+            counts.empty += 1
+            scan_event(path, rel, 0, "empty", "EMPTY")
+            continue
+        counts.files += 1
+        counts.bytes += size
+        scan_event(path, rel, size, "include")
+        files.append(FileToUpload(path, rel, size, target or "", item.from_manifest))
+    counts.emit_summary()
+    return files
+
+
+async def process_upload_items(
+    items: List[UploadItem],
+    collection: str,
+    target_sub_path: Optional[str],
+    api_key: str,
+    config: AppConfig,
+    global_args: GlobalArgs,
+    file_concurrency: int,
+    part_concurrency: int,
+    auto_approve: bool,
+) -> None:
+    """Uploads several paths / manifest items in one session (one shared semaphore)."""
+    session_id = events.current().session_id
+    selected_env_name = global_args.env_cli or config.default_env
+    if selected_env_name not in type(config.environments).model_fields:
+        raise ConfigError(f"Environment '{selected_env_name}' not defined in config.")
+
+    files = await _collect_items(items, target_sub_path, config, global_args)
+    if not files:
+        rich_console.print(
+            "[yellow]No files found to upload (after applying ignore rules and file type validation).[/yellow]"
+        )
+        return
+
+    api_client = ApiClient(config=config, global_args=global_args, api_key=api_key)
+    try:
+        await process_batch(
+            files,
+            label=f"Uploading {len(items)} item(s)",
+            collection=collection,
+            target_sub_path=target_sub_path,
+            api_client=api_client,
+            config=config,
+            global_args=global_args,
+            file_concurrency=file_concurrency,
+            part_concurrency=part_concurrency,
+            auto_approve=auto_approve,
+            session_id=session_id,
+        )
+    except UploadError as e:
+        # Per-file failures are already in the failed log; handled below.
+        logger.error(f"Upload processing failed: {e}")
+    finally:
+        await api_client.close()
+
+    await finish_session(session_id, config, global_args)
+
+
+async def finish_session(
+    session_id: str, config: AppConfig, global_args: GlobalArgs
+) -> None:
+    """End of session: auto-retry or point the user at ``cue-upload retry``."""
+    failed_log_path = config.failed_log_path
     session_failed_entries = await FailedUploadsManager.get_failed_entries(
         failed_log_path, session_id=session_id
     )

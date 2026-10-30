@@ -9,7 +9,7 @@
     "ignore reset": "Usage: cli-app ignore reset [OPTIONS] Clears all patterns from the user's ignore list. Options: --yes Confirm the action without prompting. -h, --help Show this message and exit.",
     "logs": "Usage: cli-app logs [OPTIONS] Views application logs directly in the terminal. Options: -n, --lines INTEGER Show the last N lines of the log file. --raw Display raw log content without special formatting. -h, --help Show this message and exit.",
     "retry": "Usage: cli-app retry [OPTIONS] Retries all failed upload entries saved in the failed uploads log file. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -f, --failed-log PATH Path to a custom failed uploads log file. -h, --help Show this message and exit.",
-    "upload": "Usage: cli-app upload [OPTIONS] Uploads files or directories to CUE. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -P, --path PATH Local file or directory path to be uploaded. [required] -c, --collection TEXT Name of the target collection in the backend system. [required] -tp, --target-path TEXT User-defined sub-path within the collection for organization. -fc, --file-concurrency INTEGER RANGE Max number of files to upload concurrently (folder uploads). [x>=1] -pc, --part-concurrency INTEGER RANGE Max concurrent parts for a single multipart file. [x>=1] -y, --auto-approve Skip confirmation prompt for folder uploads. -h, --help Show this message and exit."
+    "upload": "Usage: cli-app upload [OPTIONS] Uploads files or directories to CUE. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -P, --path PATH Local file or directory path to be uploaded (repeat for several). -c, --collection TEXT Name of the target collection in the backend system. [required] -tp, --target-path TEXT User-defined sub-path within the collection for organization. -fc, --file-concurrency INTEGER RANGE Max number of files to upload concurrently (folder uploads). [x>=1] -pc, --part-concurrency INTEGER RANGE Max concurrent parts for a single multipart file. [x>=1] -y, --auto-approve Skip confirmation prompt for folder uploads. -h, --help Show this message and exit."
   },
   "structure": {
     "<root>": {
@@ -342,13 +342,33 @@
         {
           "hidden": false,
           "kind": "Option",
-          "multiple": false,
-          "name": "upload_path",
+          "multiple": true,
+          "name": "upload_paths",
           "opts": [
             "-P",
             "--path"
           ],
-          "required": true
+          "required": false
+        },
+        {
+          "hidden": true,
+          "kind": "Option",
+          "multiple": false,
+          "name": "manifest_path",
+          "opts": [
+            "--manifest"
+          ],
+          "required": false
+        },
+        {
+          "hidden": true,
+          "kind": "Option",
+          "multiple": false,
+          "name": "non_interactive",
+          "opts": [
+            "--non-interactive"
+          ],
+          "required": false
         },
         {
           "hidden": false,

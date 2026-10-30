@@ -19,10 +19,11 @@ def cfg(tmp_path: Path) -> Path:
     return write_config(tmp_path)
 
 
-def _upload(cfg: Path, path: Path, *extra: str):
+def _upload(cfg: Path, path: Path, *extra: str, input=None):  # type: ignore[no-untyped-def]
     return run_cli(
         ["--config", str(cfg), "upload", "-P", str(path), "-c", "COLL", "-t", KEY]
-        + list(extra)
+        + list(extra),
+        input=input,
     )
 
 
@@ -62,10 +63,15 @@ def test_folder_events(tmp_path: Path, cfg: Path, httpx_mock) -> None:
     mock_single_upload(httpx_mock)
     mock_single_upload(httpx_mock)
 
-    # No -y: events mode must never prompt on the terminal.
-    result = _upload(cfg, d, "--json-events")
+    # No -y: events mode never prompts on the terminal; it waits for "start".
+    result = _upload(cfg, d, "--json-events", input='{"cmd":"start"}\n')
     assert result.exit_code == 0, result.output
     evs = parse_events(result.stdout)
+    types = [e["type"] for e in evs]
+    assert types.index("scan_summary") < types.index("confirm_required")
+    assert types.index("confirm_required") < types.index("batch_start")
+    scan = {e["rel_path"]: e["status"] for e in evs if e["type"] == "scan_item"}
+    assert scan == {"one.nc": "include", "sub/two.nc": "include", "empty.nc": "empty"}
     start = next(e for e in evs if e["type"] == "batch_start")
     assert start["files"] == 2 and start["bytes"] == 30
     paths = sorted(e["remote_path"] for e in evs if e["type"] == "file_done")

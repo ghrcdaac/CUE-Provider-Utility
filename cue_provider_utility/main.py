@@ -1,8 +1,9 @@
 import asyncio
+import json
 import click
 import sys
 from pathlib import Path
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from urllib.parse import urlparse
 import logging
 
@@ -21,9 +22,9 @@ from .ignored_files_handler import (
     list_ignore_patterns,
     reset_user_ignore_patterns,
 )
-from .uploader import process_upload
+from .uploader import UploadItem, process_upload, process_upload_items
 from . import __version__
-from .models import GlobalArgs
+from .models import GlobalArgs, Manifest
 from .exceptions import (
     CUEProviderError,
     UploadCancelledError,
@@ -250,15 +251,50 @@ def _finish_events(collection: Optional[str] = None, cancelled: bool = False) ->
     session.batch_done(cancelled=cancelled)
 
 
+def _load_items(
+    upload_paths: Tuple[Path, ...], manifest_path: Optional[Path]
+) -> List[UploadItem]:
+    """Builds the upload items from repeated ``-P`` or a ``--manifest`` file."""
+    if not manifest_path:
+        return [UploadItem(p) for p in upload_paths]
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = Manifest.model_validate(json.load(f))
+    except (OSError, ValueError) as e:
+        raise click.BadParameter(
+            f"Invalid manifest: {str(e).splitlines()[0]}", param_hint="--manifest"
+        )
+    if not manifest.items:
+        raise click.BadParameter("Manifest has no items.", param_hint="--manifest")
+    return [
+        UploadItem(Path(i.path).expanduser(), i.target_path, from_manifest=True)
+        for i in manifest.items
+    ]
+
+
 @cli_app.command("upload")
 @add_global_options
 @click.option(
     "-P",
     "--path",
-    "upload_path",
+    "upload_paths",
     type=click.Path(exists=True, readable=True, path_type=Path),
-    required=True,
-    help="Local file or directory path to be uploaded.",
+    multiple=True,
+    help="Local file or directory path to be uploaded (repeat for several).",
+)
+@click.option(
+    "--manifest",
+    "manifest_path",
+    type=click.Path(exists=True, dir_okay=False, readable=True, path_type=Path),
+    hidden=True,
+    help='JSON file {"items":[{"path":"...","target_path":"..."}]} (desktop app).',
+)
+@click.option(
+    "--non-interactive",
+    "non_interactive",
+    is_flag=True,
+    hidden=True,
+    help="Never prompt; fail instead of asking for confirmation.",
 )
 @click.option(
     "-c",
@@ -295,7 +331,9 @@ def _finish_events(collection: Optional[str] = None, cancelled: bool = False) ->
 @click.pass_context
 def upload_command(
     ctx: click.Context,
-    upload_path: Path,
+    upload_paths: Tuple[Path, ...],
+    manifest_path: Optional[Path],
+    non_interactive: bool,
     collection: str,
     target_path: Optional[str],
     file_concurrency: Optional[int],
@@ -321,6 +359,12 @@ def upload_command(
     )
     global_args: GlobalArgs = ctx.obj
     config = global_args.config
+    if manifest_path and upload_paths:
+        raise click.UsageError("Use either -P/--path or --manifest, not both.")
+    if not manifest_path and not upload_paths:
+        raise click.UsageError("Missing option '-P' / '--path'.")
+    items = _load_items(upload_paths, manifest_path)
+    global_args.non_interactive = non_interactive or json_events
     _start_events(json_events, global_args)
 
     api_key, key_source = get_api_key(global_args.api_key_cli, config, global_args)
@@ -331,31 +375,37 @@ def upload_command(
         messages.report("AUTH_MISSING", env=global_args.env_cli or config.default_env)
         _finish_events(collection)
         sys.exit(1)
+    single = items[0].path if len(items) == 1 and not manifest_path else None
+    upload_label = str(single) if single else f"{len(items)} item(s)"
 
     if key_source and not global_args.quiet_mode:
         rich_console.print(
             f"[info]Using API key from [bold]{key_source}[/bold]...[/info]"
         )
 
-    rich_console.print(f"\nInitiating upload for: [bold cyan]{upload_path}[/bold cyan]")
+    rich_console.print(
+        f"\nInitiating upload for: [bold cyan]{upload_label}[/bold cyan]"
+    )
     rich_console.print(f"Target Collection: [bold cyan]{collection}[/bold cyan]")
     if target_path:
         rich_console.print(f"Target Path: [bold cyan]{target_path}[/bold cyan]")
 
+    common: Dict[str, Any] = dict(
+        collection=collection,
+        target_sub_path=target_path,
+        api_key=api_key,
+        config=config,
+        global_args=global_args,
+        file_concurrency=file_concurrency or config.file_concurrency,
+        part_concurrency=part_concurrency or config.part_concurrency,
+        auto_approve=auto_approve,
+    )
     try:
-        asyncio.run(
-            process_upload(
-                source_path=upload_path,
-                collection=collection,
-                target_sub_path=target_path,
-                api_key=api_key,
-                config=config,
-                global_args=global_args,
-                file_concurrency=file_concurrency or config.file_concurrency,
-                part_concurrency=part_concurrency or config.part_concurrency,
-                auto_approve=auto_approve,
-            )
-        )
+        if single is not None:
+            # One -P: exactly today's code path.
+            asyncio.run(process_upload(source_path=single, **common))
+        else:
+            asyncio.run(process_upload_items(items=items, **common))
         rich_console.print(
             "\n[bold green]✅ Upload process finished successfully.[/bold green]"
         )
@@ -367,13 +417,16 @@ def upload_command(
     except (CUEProviderError, AuthError) as e:
         rich_console.print(f"\n[bold red]Error: {e}[/bold red]")
         if not (isinstance(e, UploadError) and events.current().counts()["failed"]):
-            messages.report_exception(e, name=upload_path.name)
+            messages.report_exception(e, name=upload_label)
         _finish_events(collection)
         if global_args.verbose_level < 2:
             rich_console.print(
                 "[dim]Hint: For more details, run with the -vv flag.[/dim]"
             )
         sys.exit(1)
+    except click.ClickException:
+        _finish_events(collection)
+        raise
     except Exception as e:
         rich_console.print(
             f"\n[bold red]An unexpected critical error occurred: {e}[/bold red]"

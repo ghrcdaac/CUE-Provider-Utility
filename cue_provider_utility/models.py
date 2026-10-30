@@ -119,6 +119,7 @@ class GlobalArgs(BaseModel):
     verbose_level: int = 0
     quiet_mode: bool = False
     json_events: bool = False
+    non_interactive: bool = False
     config: AppConfig = Field(default_factory=AppConfig)
 
 
@@ -204,3 +205,16 @@ class MultipartCompleteRequest(BaseModel):
 class MultipartAbortRequest(BaseModel):
     file_id: UUID
     upload_id: str
+
+
+# --- Upload manifest (desktop app; ``upload --manifest``) ---
+MANIFEST_MAX_ITEMS = 1_000_000
+
+
+class ManifestItem(BaseModel):
+    path: str
+    target_path: Optional[str] = None
+
+
+class Manifest(BaseModel):
+    items: List[ManifestItem] = Field(max_length=MANIFEST_MAX_ITEMS)
