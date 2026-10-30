@@ -4,18 +4,14 @@ Sets up console and file logging with appropriate levels and formatting.
 """
 
 import logging
-import sys
 from pathlib import Path
 import asyncio
-import time
 from typing import Optional
 
 import aiofiles
 from rich.logging import RichHandler
 from rich.console import Console
 from rich.text import Text
-
-from .config_manager import DEFAULT_CONFIG_DIR
 
 DEFAULT_LOG_FILENAME = "cue-upload.log"
 CONSOLE_FORMAT = "%(message)s"

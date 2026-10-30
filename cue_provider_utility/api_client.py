@@ -7,8 +7,6 @@ from typing import Optional, Dict, Any, List, AsyncGenerator, TypeVar, Type, ove
 from urllib.parse import urljoin
 from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
-
 from .models import (
     AppConfig,
     GlobalArgs,
@@ -27,6 +25,8 @@ from .exceptions import APIRequestError, ConfigError
 from rich.progress import Progress
 import aiofiles
 from pathlib import Path
+
+T = TypeVar("T", bound=BaseModel)
 
 try:
     from . import __version__ as app_version
@@ -86,7 +86,7 @@ class ApiClient:
         self.api_key = api_key
         self.base_url_no_version = self._get_base_url_no_version()
 
-        hooks = {}
+        hooks: Dict[str, List[Any]] = {}
         if self.global_args.verbose_level >= 2:
             hooks = {
                 "request": [log_request_details],

@@ -46,7 +46,7 @@ class FileToUpload:
             None  # Will hold the ID for its own progress bar task
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<FileToUpload {self.relative_path} status={self.status}>"
 
 
@@ -122,7 +122,7 @@ async def _upload_one_file_from_folder(
     session_id: Optional[str] = None,
     env_name: str = "prod",
     failed_log_path: Optional[Path] = None,
-):
+) -> None:
     """Handles uploading a single file as part of a folder upload."""
     from .single_file_uploader import handle_single_file_upload
     from .multipart_uploader import handle_multipart_upload
@@ -235,7 +235,7 @@ async def process_folder_upload(
     part_concurrency: int,
     auto_approve: bool,
     session_id: Optional[str] = None,
-):
+) -> None:
     """Orchestrates the upload of all files within a folder."""
     files_to_upload_list, num_files, total_size = await scan_folder(
         folder_path, config, global_args.config_path_override
@@ -278,7 +278,7 @@ async def process_folder_upload(
             f"[bold]Uploading folder: {folder_path.name}[/bold]", total=num_files
         )
 
-        async def worker(file_to_upload_item: FileToUpload):
+        async def worker(file_to_upload_item: FileToUpload) -> None:
             async with semaphore:
                 await _upload_one_file_from_folder(
                     file_task=file_to_upload_item,

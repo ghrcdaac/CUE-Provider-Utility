@@ -1,9 +1,8 @@
 import pytest
-import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock, MagicMock
-from rich.progress import Progress, TaskID
+from unittest.mock import AsyncMock
+from rich.progress import Progress
 
 from cue_provider_utility.api_client import ApiClient
 from cue_provider_utility.models import (

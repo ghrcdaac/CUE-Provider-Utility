@@ -2,7 +2,7 @@ import asyncio
 import click
 import sys
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any, Callable, Optional, cast
 from urllib.parse import urlparse
 import logging
 
@@ -75,7 +75,7 @@ def cli_app(
     log_file_override: Optional[Path],
     verbose: int,
     quiet: bool,
-):
+) -> None:
     """CUE Provider Utility: CLI for uploading files and folders to CUE."""
     ctx.obj = GlobalArgs(
         api_key_cli=api_key_cli,
@@ -106,7 +106,7 @@ def cli_app(
         sys.exit(1)
 
 
-def add_global_options(f):
+def add_global_options(f: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator to add global options (-t, --env, --config, --log-file, -v, -q) to subcommands."""
     f = click.option(
         "-t",
@@ -155,7 +155,7 @@ def sync_global_options(
     log_file_override_sub: Optional[Path] = None,
     verbose_sub: int = 0,
     quiet_sub: bool = False,
-):
+) -> None:
     """Synchronizes any subcommand-level global options into the ctx.obj GlobalArgs."""
     global_args: GlobalArgs = ctx.obj
     if api_key_cli_sub:
@@ -254,7 +254,7 @@ def upload_command(
     log_file_override_sub: Optional[Path],
     verbose_sub: int,
     quiet_sub: bool,
-):
+) -> None:
     """Uploads files or directories to CUE."""
     sync_global_options(
         ctx,
@@ -327,16 +327,15 @@ def upload_command(
     "--key", "set_key_only", is_flag=True, help="Only prompt for and save the API key."
 )
 @click.pass_context
-def configure_command(ctx: click.Context, set_key_only: bool):
+def configure_command(ctx: click.Context, set_key_only: bool) -> None:
     """Interactively configures CUE Provider Utility settings."""
     global_args: GlobalArgs = ctx.obj
     config = get_config(global_args.config_path_override)
     config_file = get_config_file_path(global_args.config_path_override)
 
     # --- Helper function for the API Key prompt logic ---
-    def _handle_api_key_prompt():
+    def _handle_api_key_prompt() -> None:
         """Handles the logic for prompting and saving the API key."""
-        nonlocal config  # Allows modification of the config object from the outer scope
         rich_console.print("\n[bold]API Key Storage[/bold]")
 
         save_to_netrc_prompt = "Save API key to the secure .netrc file? (Recommended). If 'no', it will be saved to config.toml."
@@ -412,7 +411,7 @@ def configure_command(ctx: click.Context, set_key_only: bool):
         return
 
     # Otherwise, run the full interactive wizard.
-    rich_console.print(f"\n[bold]CUE Provider Utility Configuration[/bold]")
+    rich_console.print("\n[bold]CUE Provider Utility Configuration[/bold]")
     rich_console.print(f"Editing settings in: [dim]{config_file}[/dim]\n")
 
     # --- General Settings ---
@@ -486,7 +485,9 @@ def configure_command(ctx: click.Context, set_key_only: bool):
                         )
                     new_value = input_str
                 else:
-                    new_value = setting_type.convert(raw_input, None, None)
+                    new_value = cast(click.ParamType, setting_type).convert(
+                        raw_input, None, None
+                    )
 
                 if new_value != current_value:
                     save_config_value(key, new_value, global_args.config_path_override)
@@ -508,14 +509,14 @@ def configure_command(ctx: click.Context, set_key_only: bool):
 
 
 @cli_app.group("ignore")
-def ignore_group():
+def ignore_group() -> None:
     """Manages ignored file patterns for folder uploads."""
     pass
 
 
 @ignore_group.command("list")
 @click.pass_context
-def ignore_list_command(ctx: click.Context):
+def ignore_list_command(ctx: click.Context) -> None:
     """Displays active system default and user-defined ignored file patterns."""
     global_args: GlobalArgs = ctx.obj
     system_patterns, user_patterns = list_ignore_patterns(
@@ -535,7 +536,7 @@ def ignore_list_command(ctx: click.Context):
 @ignore_group.command("add")
 @click.argument("pattern", type=str)
 @click.pass_context
-def ignore_add_command(ctx: click.Context, pattern: str):
+def ignore_add_command(ctx: click.Context, pattern: str) -> None:
     """Adds a new glob pattern to the user's ignore list."""
     global_args: GlobalArgs = ctx.obj
     try:
@@ -553,7 +554,7 @@ def ignore_add_command(ctx: click.Context, pattern: str):
 @ignore_group.command("remove")
 @click.argument("pattern", type=str)
 @click.pass_context
-def ignore_remove_command(ctx: click.Context, pattern: str):
+def ignore_remove_command(ctx: click.Context, pattern: str) -> None:
     """Removes a glob pattern from the user's ignore list."""
     global_args: GlobalArgs = ctx.obj
     try:
@@ -570,7 +571,7 @@ def ignore_remove_command(ctx: click.Context, pattern: str):
     prompt="Are you sure you want to clear all user-defined ignore patterns?"
 )
 @click.pass_context
-def ignore_reset_command(ctx: click.Context):
+def ignore_reset_command(ctx: click.Context) -> None:
     """Clears all patterns from the user's ignore list."""
     global_args: GlobalArgs = ctx.obj
     try:
@@ -586,7 +587,7 @@ def ignore_reset_command(ctx: click.Context):
     "--raw", is_flag=True, help="Display raw log content without special formatting."
 )
 @click.pass_context
-def logs_command(ctx: click.Context, lines: Optional[int], raw: bool):
+def logs_command(ctx: click.Context, lines: Optional[int], raw: bool) -> None:
     """Views application logs directly in the terminal."""
     global_args: GlobalArgs = ctx.obj
     log_file_to_view = global_args.log_file_override or get_log_file_path(
@@ -618,7 +619,7 @@ def retry_command(
     log_file_override_sub: Optional[Path],
     verbose_sub: int,
     quiet_sub: bool,
-):
+) -> None:
     """Retries all failed upload entries saved in the failed uploads log file."""
     from .failed_uploads_handler import FailedUploadsManager
     from .uploader import retry_failed_entries

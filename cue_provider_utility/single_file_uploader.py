@@ -1,11 +1,9 @@
 # cue_provider_utility/single_file_uploader.py
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, Any
 
-import aiofiles
 import httpx
 from rich.progress import (
     Progress,

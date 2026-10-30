@@ -29,7 +29,6 @@ def get_key_from_netrc(hostname: str) -> Optional[str]:
 def save_key_to_netrc(hostname: str, login: str, key: str) -> None:
     """Saves or updates an API key in the .netrc file for a given hostname."""
     lines = []
-    entry_found = False
 
     if NETRC_PATH.exists():
         with open(NETRC_PATH, "r") as f:
@@ -48,7 +47,6 @@ def save_key_to_netrc(hostname: str, login: str, key: str) -> None:
                 and parts[1] == hostname
             ):
                 in_entry_block = True
-                entry_found = True
                 # Skip writing this line and its subsequent password/login lines
                 continue
             # If we find the start of a new machine, we are no longer in our target block

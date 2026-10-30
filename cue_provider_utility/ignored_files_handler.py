@@ -12,7 +12,6 @@ import logging
 from .config_manager import (
     get_user_ignore_patterns,
     set_user_ignore_patterns,
-    get_config_file_path,
 )
 from .exceptions import IgnoredFileError, ConfigError
 

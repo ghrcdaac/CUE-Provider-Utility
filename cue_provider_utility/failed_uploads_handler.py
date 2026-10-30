@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 from uuid import uuid4
 
-from .models import FailedUploadEntry, FailedUploadsContainer, AppConfig
+from .models import FailedUploadEntry, FailedUploadsContainer
 from .config_manager import get_config
 
 logger = logging.getLogger(__name__)

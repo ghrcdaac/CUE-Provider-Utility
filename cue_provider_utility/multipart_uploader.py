@@ -68,7 +68,7 @@ class UploadPartTask:
 
             try:
                 get_url_payload = MultipartGetPartUrlRequest(
-                    file_id=file_id,
+                    file_id=file_id,  # type: ignore[arg-type]
                     upload_id=s3_upload_id,
                     part_number=self.part_number,
                 )
@@ -200,8 +200,8 @@ async def handle_multipart_upload(
         for i in range(num_parts)
     ]
 
-    checksum_result = None
-    upload_result = None
+    checksum_result: Any = None
+    upload_result: Any = None
 
     if cached_checksum:
         checksum_result = cached_checksum

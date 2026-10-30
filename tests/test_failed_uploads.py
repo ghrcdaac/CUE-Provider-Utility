@@ -1,8 +1,7 @@
 import pytest
-import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from cue_provider_utility.models import FailedUploadEntry, AppConfig
+from cue_provider_utility.models import FailedUploadEntry
 from cue_provider_utility.failed_uploads_handler import (
     FailedUploadsManager,
     load_failed_uploads_container,

@@ -1,9 +1,7 @@
-import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, List
 from uuid import uuid4
-import sys
 
 from .models import AppConfig, GlobalArgs, FailedUploadEntry
 from .exceptions import (
@@ -68,7 +66,6 @@ async def retry_failed_entries(
                 continue
 
             target_env = entry.env or global_args.env_cli or config.default_env
-            file_concurrency = entry.file_concurrency or config.file_concurrency
             part_concurrency = entry.part_concurrency or config.part_concurrency
 
             from .auth_handler import get_api_key
@@ -154,7 +151,7 @@ async def process_upload(
     file_concurrency: int,
     part_concurrency: int,
     auto_approve: bool,
-):
+) -> None:
     """
     Main entry point to process an upload request for a file or folder.
     """
