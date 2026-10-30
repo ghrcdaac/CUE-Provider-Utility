@@ -1,6 +1,15 @@
 {
   "help": {
     "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. auth Manages upload keys per environment (OS keyring). configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "_gui": "Usage: cli-app _gui [OPTIONS] COMMAND [ARGS]... Internal commands for the CUE desktop app. Options: -h, --help Show this message and exit. Commands: capabilities Compatibility handshake. config Reads or changes settings without prompts. failed Reads or dismisses failed uploads. targets Collections this key may upload to (uses the stored key).",
+    "_gui capabilities": "Usage: cli-app _gui capabilities [OPTIONS] Compatibility handshake. Options: --json -h, --help Show this message and exit.",
+    "_gui config": "Usage: cli-app _gui config [OPTIONS] COMMAND [ARGS]... Reads or changes settings without prompts. Options: -h, --help Show this message and exit. Commands: set Validated non-interactive write of one setting. show Prints the effective config (the API key is never shown).",
+    "_gui config set": "Usage: cli-app _gui config set [OPTIONS] KEY VALUE Validated non-interactive write of one setting. Options: --allow-advanced Allow environments.* and paths. --json -h, --help Show this message and exit.",
+    "_gui config show": "Usage: cli-app _gui config show [OPTIONS] Prints the effective config (the API key is never shown). Options: --json -h, --help Show this message and exit.",
+    "_gui failed": "Usage: cli-app _gui failed [OPTIONS] COMMAND [ARGS]... Reads or dismisses failed uploads. Options: -h, --help Show this message and exit. Commands: list Lists failed uploads. remove Dismisses failed-upload entries.",
+    "_gui failed list": "Usage: cli-app _gui failed list [OPTIONS] Lists failed uploads. Options: -f, --failed-log PATH --json -h, --help Show this message and exit.",
+    "_gui failed remove": "Usage: cli-app _gui failed remove [OPTIONS] Dismisses failed-upload entries. Options: --entry-id TEXT [required] -f, --failed-log PATH --json -h, --help Show this message and exit.",
+    "_gui targets": "Usage: cli-app _gui targets [OPTIONS] Collections this key may upload to (uses the stored key). Options: --env [prod|uat|sit|local] Environment (default: default_env). --json -h, --help Show this message and exit.",
     "auth": "Usage: cli-app auth [OPTIONS] COMMAND [ARGS]... Manages upload keys per environment (OS keyring). Options: -h, --help Show this message and exit. Commands: delete-key Removes the stored key for one environment. set-key Stores an API key for one environment in the OS keyring. status Shows which key each environment would use (never prints the key). test Checks that the key works with one quick call (never prints targets).",
     "auth delete-key": "Usage: cli-app auth delete-key [OPTIONS] Removes the stored key for one environment. Options: --env [prod|uat|sit|local] Environment (default: default_env). --all-sources Also remove it from .netrc and config.toml. --yes Don't ask for confirmation. -h, --help Show this message and exit.",
     "auth set-key": "Usage: cli-app auth set-key [OPTIONS] Stores an API key for one environment in the OS keyring. Options: --env [prod|uat|sit|local] Environment (default: default_env). --stdin Read the key from stdin. --key-id TEXT Key id (metadata only). --name TEXT Key name (metadata only). --expires-at TEXT Expiry, ISO 8601 (metadata only). --source TEXT Who stored it. [default: cli] -h, --help Show this message and exit.",
@@ -17,7 +26,16 @@
     "upload": "Usage: cli-app upload [OPTIONS] Uploads files or directories to CUE. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -P, --path PATH Local file or directory path to be uploaded (repeat for several). -c, --collection TEXT Name of the target collection in the backend system. [required] -tp, --target-path TEXT User-defined sub-path within the collection for organization. -fc, --file-concurrency INTEGER RANGE Max number of files to upload concurrently (folder uploads). [x>=1] -pc, --part-concurrency INTEGER RANGE Max concurrent parts for a single multipart file. [x>=1] -y, --auto-approve Skip confirmation prompt for folder uploads. -h, --help Show this message and exit."
   },
   "help_show_all": {
-    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. --trusted-endpoints Use only the built-in API URLs (desktop app). --allow-local Allow the local environment with --trusted-endpoints. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. auth Manages upload keys per environment (OS keyring). configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. --trusted-endpoints Use only the built-in API URLs (desktop app). --allow-local Allow the local environment with --trusted-endpoints. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. auth Manages upload keys per environment (OS keyring). configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. _gui Internal commands for the CUE desktop app. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "_gui": "Usage: cli-app _gui [OPTIONS] COMMAND [ARGS]... Internal commands for the CUE desktop app. Options: -h, --help Show this message and exit. Commands: capabilities Compatibility handshake. config Reads or changes settings without prompts. failed Reads or dismisses failed uploads. targets Collections this key may upload to (uses the stored key).",
+    "_gui capabilities": "Usage: cli-app _gui capabilities [OPTIONS] Compatibility handshake. Options: --json -h, --help Show this message and exit.",
+    "_gui config": "Usage: cli-app _gui config [OPTIONS] COMMAND [ARGS]... Reads or changes settings without prompts. Options: -h, --help Show this message and exit. Commands: set Validated non-interactive write of one setting. show Prints the effective config (the API key is never shown).",
+    "_gui config set": "Usage: cli-app _gui config set [OPTIONS] KEY VALUE Validated non-interactive write of one setting. Options: --allow-advanced Allow environments.* and paths. --json -h, --help Show this message and exit.",
+    "_gui config show": "Usage: cli-app _gui config show [OPTIONS] Prints the effective config (the API key is never shown). Options: --json -h, --help Show this message and exit.",
+    "_gui failed": "Usage: cli-app _gui failed [OPTIONS] COMMAND [ARGS]... Reads or dismisses failed uploads. Options: -h, --help Show this message and exit. Commands: list Lists failed uploads. remove Dismisses failed-upload entries.",
+    "_gui failed list": "Usage: cli-app _gui failed list [OPTIONS] Lists failed uploads. Options: -f, --failed-log PATH --json -h, --help Show this message and exit.",
+    "_gui failed remove": "Usage: cli-app _gui failed remove [OPTIONS] Dismisses failed-upload entries. Options: --entry-id TEXT [required] -f, --failed-log PATH --json -h, --help Show this message and exit.",
+    "_gui targets": "Usage: cli-app _gui targets [OPTIONS] Collections this key may upload to (uses the stored key). Options: --env [prod|uat|sit|local] Environment (default: default_env). --json -h, --help Show this message and exit.",
     "auth": "Usage: cli-app auth [OPTIONS] COMMAND [ARGS]... Manages upload keys per environment (OS keyring). Options: -h, --help Show this message and exit. Commands: delete-key Removes the stored key for one environment. set-key Stores an API key for one environment in the OS keyring. status Shows which key each environment would use (never prints the key). test Checks that the key works with one quick call (never prints targets).",
     "auth delete-key": "Usage: cli-app auth delete-key [OPTIONS] Removes the stored key for one environment. Options: --env [prod|uat|sit|local] Environment (default: default_env). --all-sources Also remove it from .netrc and config.toml. --yes Don't ask for confirmation. -h, --help Show this message and exit.",
     "auth set-key": "Usage: cli-app auth set-key [OPTIONS] Stores an API key for one environment in the OS keyring. Options: --env [prod|uat|sit|local] Environment (default: default_env). --stdin Read the key from stdin. --key-id TEXT Key id (metadata only). --name TEXT Key name (metadata only). --expires-at TEXT Expiry, ISO 8601 (metadata only). --source TEXT Who stored it. [default: cli] -h, --help Show this message and exit.",
@@ -127,6 +145,180 @@
           "name": "allow_local",
           "opts": [
             "--allow-local"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "_gui": {
+      "hidden": true,
+      "params": []
+    },
+    "_gui capabilities": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "_gui config": {
+      "hidden": false,
+      "params": []
+    },
+    "_gui config set": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Argument",
+          "multiple": false,
+          "name": "key",
+          "opts": [
+            "key"
+          ],
+          "required": true
+        },
+        {
+          "hidden": false,
+          "kind": "Argument",
+          "multiple": false,
+          "name": "value",
+          "opts": [
+            "value"
+          ],
+          "required": true
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "allow_advanced",
+          "opts": [
+            "--allow-advanced"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "_gui config show": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "_gui failed": {
+      "hidden": false,
+      "params": []
+    },
+    "_gui failed list": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "failed_log",
+          "opts": [
+            "-f",
+            "--failed-log"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "_gui failed remove": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": true,
+          "name": "entry_ids",
+          "opts": [
+            "--entry-id"
+          ],
+          "required": true
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "failed_log",
+          "opts": [
+            "-f",
+            "--failed-log"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "_gui targets": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
           ],
           "required": false
         }

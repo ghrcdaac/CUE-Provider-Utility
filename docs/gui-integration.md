@@ -46,3 +46,16 @@ uploads, emits `file_stage CANCELLED` for unfinished files (they are **not** wri
 | 3 | auth: missing key, 401 or 403 |
 | 130 | cancelled |
 | 70 | internal error |
+
+## Hidden `_gui` commands (all accept `--json`)
+| command | purpose / exit codes |
+| --- | --- |
+| `cue-upload _gui capabilities --json` | `{cli_version, protocol, features[], keyring_available, keyring_backend}` |
+| `cue-upload _gui config show --json` | effective config; `api_key` shown as `"***"` |
+| `cue-upload _gui config set <key> <value> [--allow-advanced]` | validated write; refuses `api_key`. Keys: `default_env`, `retry_attempts`, `auto_retry`, `file_concurrency`, `part_concurrency`, `multipart_threshold_gb`, `multipart_chunk_size_mb`, `log_level`, `user_ignored_patterns` (JSON list), `use_keyring`; with `--allow-advanced` also `environments.*`, `allowed_mime_types`, `denied_mime_types`, `failed_log_path`, `log_file_directory`. Speed presets: Gentle 2/2, Standard 4/4, Fast 8/8 (`file_concurrency`/`part_concurrency`). Invalid value → exit 2 |
+| `cue-upload _gui failed list --json` | `{"entries":[…]}` from `failed_uploads.json` |
+| `cue-upload _gui failed remove --entry-id ID…` | `{"removed":[…]}` |
+| `cue-upload _gui targets --env E --json` | `GET /v2/me/upload-targets` with the stored key; syncs `caller.key` metadata into `credentials.json`; exit 3 = no/invalid key, 4 = `SERVER_TOO_OLD` |
+
+Key hand-off: `cue-upload --trusted-endpoints auth set-key --env E --stdin --key-id … --name … --expires-at … --source gui`
+(key on stdin only), then `auth status --env E --json` / `_gui targets --env E --json`.

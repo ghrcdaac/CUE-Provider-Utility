@@ -35,6 +35,7 @@ from .exceptions import (
 )
 from . import control, credential_store, endpoints, events, messages
 from .endpoints import trusted_options
+from .gui_commands import gui_group
 from .auth_commands import auth_group, now_iso as _now_iso
 
 
@@ -515,6 +516,7 @@ def upload_command(
 
 
 cli_app.add_command(auth_group)
+cli_app.add_command(gui_group)
 
 
 @cli_app.command("configure")
