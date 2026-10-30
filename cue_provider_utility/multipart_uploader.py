@@ -17,6 +17,7 @@ from .exceptions import UploadError, FileProcessingError, APIRequestError
 from .api_client import ApiClient
 from .utils import calculate_sha256_checksum, get_mime_type, format_bytes
 from .logger_setup import rich_console
+from .progress_adapter import stage
 from rich.progress import (
     Progress,
     BarColumn,
@@ -180,8 +181,15 @@ async def handle_multipart_upload(
     )
 
     if progress is not None and file_task_id is not None:
+        stage(progress, file_task_id, "NEGOTIATING")
         progress.update(file_task_id, description="[bold green]Initiating upload...[/]")
         start_response = await api_client.start_multipart(start_payload)
+        stage(
+            progress,
+            file_task_id,
+            "UPLOADING",
+            remote_file_id=str(start_response.file_id),
+        )
     else:
         with rich_console.status(
             "[bold green]Initiating multipart upload with backend...[/]"
@@ -365,6 +373,7 @@ async def handle_multipart_upload(
     )
 
     if progress is not None and file_task_id is not None:
+        stage(progress, file_task_id, "VERIFYING")
         progress.update(file_task_id, description="[bold green]Completing upload...[/]")
         await api_client.complete_multipart(complete_payload)
     else:

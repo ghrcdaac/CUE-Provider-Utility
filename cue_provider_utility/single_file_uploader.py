@@ -19,6 +19,7 @@ from .exceptions import APIRequestError, FileProcessingError, UploadError
 from .logger_setup import rich_console
 from .models import AppConfig, CompleteSingleRequest, PrepareSingleRequest
 from .utils import calculate_sha256_checksum, get_mime_type
+from .progress_adapter import stage
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ async def _perform_upload(
         if cached_checksum:
             checksum_sha256 = cached_checksum
         else:
+            stage(progress, task_id, "HASHING")
             progress.update(task_id, description=f"Checksum {file_path.name}")
             checksum_sha256 = await calculate_sha256_checksum(file_path)
 
@@ -60,8 +62,15 @@ async def _perform_upload(
                 content_type=mime_type,
                 collection_path=target_sub_path,
             )
+            stage(progress, task_id, "NEGOTIATING")
             progress.update(task_id, description=f"Preparing {file_path.name}")
             prepare_response = await api_client.prepare_single_upload(prepare_payload)
+            stage(
+                progress,
+                task_id,
+                "UPLOADING",
+                remote_file_id=str(prepare_response.file_id),
+            )
 
             s3_headers = {"Content-Type": mime_type, "Content-Length": str(file_size)}
 
@@ -83,6 +92,7 @@ async def _perform_upload(
             progress.update(task_id, completed=file_size)
 
             # Step 4: Complete the upload with the backend
+            stage(progress, task_id, "VERIFYING")
             progress.update(task_id, description=f"Completing {file_path.name}")
             complete_payload = CompleteSingleRequest(
                 file_id=prepare_response.file_id,

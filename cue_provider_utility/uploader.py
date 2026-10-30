@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Optional, List
-from uuid import uuid4
+from typing import Any, List, Optional, Tuple
 
 from .models import AppConfig, GlobalArgs, FailedUploadEntry
 from .exceptions import (
@@ -14,14 +13,26 @@ from .exceptions import (
 from .api_client import ApiClient
 from .single_file_uploader import handle_single_file_upload
 from .multipart_uploader import handle_multipart_upload
-from .folder_processor import process_folder_upload
+from .folder_processor import process_folder_upload, remote_path, report_file_failure
 from .utils import get_file_size, validate_file_type
 from .ignored_files_handler import is_path_ignored
 from .failed_uploads_handler import FailedUploadsManager
 from .logger_setup import rich_console
+from .progress_adapter import JsonProgress
+from . import events, messages
 
 
 logger = logging.getLogger(__name__)
+
+
+def _event_progress(file_id: str, size: int) -> Tuple[Any, Any]:
+    """In events mode returns a bound ``JsonProgress`` task, otherwise ``(None, None)``."""
+    if not events.enabled():
+        return None, None
+    progress = JsonProgress()
+    task_id = progress.add_task("upload", total=size)
+    progress.bind(task_id, file_id)
+    return progress, task_id
 
 
 async def retry_failed_entries(
@@ -42,6 +53,7 @@ async def retry_failed_entries(
         f"\n[bold cyan]Starting retry for {len(entries)} failed upload(s)...[/bold cyan]"
     )
     succeeded_count = 0
+    session = events.current()
 
     for round_idx in range(retry_rounds):
         current_failed = await FailedUploadsManager.get_failed_entries(failed_log_path)
@@ -53,16 +65,32 @@ async def retry_failed_entries(
         if not entries_to_attempt:
             break
 
+        last_round = round_idx == retry_rounds - 1
+        events.emit(
+            "retry_round",
+            round=round_idx + 1,
+            max_rounds=retry_rounds,
+            files=len(entries_to_attempt),
+        )
         if round_idx > 0:
             rich_console.print(
                 f"\n[bold yellow]--- Retry Round {round_idx + 1}/{retry_rounds} ---[/bold yellow]"
             )
 
         for entry in entries_to_attempt:
+            file_id = session.file_id_for(entry.file_path, entry.file_size)
             if not entry.file_path.exists():
                 rich_console.print(
                     f"[yellow]Warning: Local file no longer exists at path: {entry.file_path}. Skipping.[/yellow]"
                 )
+                if last_round:
+                    session.stage(file_id, "FAILED")
+                    messages.report(
+                        "FILE_READ",
+                        file_id=file_id,
+                        failed_entry_id=entry.entry_id,
+                        detail=f"Local file no longer exists: {entry.file_path}",
+                    )
                 continue
 
             target_env = entry.env or global_args.env_cli or config.default_env
@@ -75,6 +103,14 @@ async def retry_failed_entries(
                 rich_console.print(
                     f"[bold red]API Key not found for environment '{target_env}'. Cannot retry {entry.file_path.name}.[/bold red]"
                 )
+                if last_round:
+                    session.stage(file_id, "FAILED")
+                    messages.report(
+                        "AUTH_MISSING",
+                        file_id=file_id,
+                        failed_entry_id=entry.entry_id,
+                        env=target_env,
+                    )
                 continue
 
             retry_global_args = GlobalArgs(
@@ -92,10 +128,14 @@ async def retry_failed_entries(
             )
             file_size = get_file_size(entry.file_path)
             multipart_threshold_bytes = config.multipart_threshold_gb * (1024**3)
+            progress, task_id = _event_progress(file_id, file_size)
+            session.stage(
+                file_id, "RETRYING", attempt=round_idx + 1, max_attempts=retry_rounds
+            )
 
             try:
                 if file_size > multipart_threshold_bytes:
-                    await handle_multipart_upload(
+                    result = await handle_multipart_upload(
                         file_path=entry.file_path,
                         file_size=file_size,
                         collection=entry.collection,
@@ -103,17 +143,21 @@ async def retry_failed_entries(
                         api_client=api_client,
                         config=config,
                         part_concurrency=part_concurrency,
+                        progress=progress,
+                        file_task_id=task_id,
                         cached_checksum=entry.checksum,
                         cached_content_type=entry.content_type,
                     )
                 else:
-                    await handle_single_file_upload(
+                    result = await handle_single_file_upload(
                         file_path=entry.file_path,
                         file_size=file_size,
                         collection=entry.collection,
                         target_sub_path=entry.target_sub_path,
                         api_client=api_client,
                         config=config,
+                        progress=progress,
+                        task_id=task_id,
                         cached_checksum=entry.checksum,
                         cached_content_type=entry.content_type,
                     )
@@ -123,6 +167,15 @@ async def retry_failed_entries(
                         entry.entry_id, failed_log_path
                     )
                 succeeded_count += 1
+                session.file_done(
+                    file_id,
+                    result[0],
+                    result[1],
+                    remote_path(
+                        entry.collection, entry.target_sub_path, entry.file_path.name
+                    ),
+                )
+                messages.report("RETRY_OK", file_id=file_id, name=entry.file_path.name)
                 rich_console.print(
                     f"[green]✓ Retried and successfully uploaded: {entry.file_path.name}[/green]"
                 )
@@ -132,6 +185,16 @@ async def retry_failed_entries(
                 rich_console.print(
                     f"[red]✗ Retry failed for {entry.file_path.name}: {e}[/red]"
                 )
+                if last_round:
+                    session.stage(file_id, "FAILED")
+                    messages.report_exception(
+                        e,
+                        file_id=file_id,
+                        failed_entry_id=entry.entry_id,
+                        name=entry.file_path.name,
+                    )
+                else:
+                    session.stage(file_id, "RETRY_PENDING")
             finally:
                 await api_client.close()
 
@@ -155,7 +218,7 @@ async def process_upload(
     """
     Main entry point to process an upload request for a file or folder.
     """
-    session_id = str(uuid4())
+    session_id = events.current().session_id
     selected_env_name = global_args.env_cli or config.default_env
     failed_log_path = config.failed_log_path
 
@@ -179,7 +242,6 @@ async def process_upload(
                 f"File '{source_path.name}' matches an active ignore pattern and will not be uploaded."
             )
 
-    upload_error_occurred = False
     try:
         if not source_path.exists():
             raise FileProcessingError(f"Source path does not exist: {source_path}")
@@ -210,7 +272,20 @@ async def process_upload(
                 rich_console.print(
                     f"[yellow]Warning: Skipping file [bold]{source_path.name}[/bold] because it is 0 B.[/yellow]"
                 )
+                messages.report("SKIPPED_EMPTY", name=source_path.name)
                 return
+
+            file_id = events.current().file_id_for(source_path, file_size)
+            progress, task_id = _event_progress(file_id, file_size)
+            events.emit(
+                "batch_start",
+                files=1,
+                bytes=file_size,
+                collection=collection,
+                target_path=target_sub_path,
+                file_concurrency=file_concurrency,
+                part_concurrency=part_concurrency,
+            )
 
             checksum: Optional[str] = None
             content_type: Optional[str] = None
@@ -224,6 +299,8 @@ async def process_upload(
                         api_client=api_client,
                         config=config,
                         part_concurrency=part_concurrency,
+                        progress=progress,
+                        file_task_id=task_id,
                     )
                 else:
                     checksum, content_type = await handle_single_file_upload(
@@ -233,9 +310,22 @@ async def process_upload(
                         target_sub_path=target_sub_path,
                         api_client=api_client,
                         config=config,
+                        progress=progress,
+                        task_id=task_id,
                     )
+                events.current().file_done(
+                    file_id,
+                    checksum,
+                    content_type,
+                    remote_path(collection, target_sub_path, source_path.name),
+                )
+                messages.report(
+                    "UPLOAD_OK",
+                    file_id=file_id,
+                    name=source_path.name,
+                    collection=collection,
+                )
             except Exception as e:
-                upload_error_occurred = True
                 checksum_val = getattr(e, "checksum", checksum)
                 content_type_val = getattr(e, "content_type", content_type)
                 entry = FailedUploadEntry(
@@ -251,7 +341,12 @@ async def process_upload(
                     part_concurrency=part_concurrency,
                     error_message=str(e),
                 )
-                await FailedUploadsManager.add_failed_entry(entry, failed_log_path)
+                saved = await FailedUploadsManager.add_failed_entry(
+                    entry, failed_log_path
+                )
+                report_file_failure(
+                    file_id, e, config, saved.entry_id, source_path.name
+                )
                 raise
         else:
             raise FileProcessingError(
@@ -268,13 +363,11 @@ async def process_upload(
         logger.error(
             f"Upload processing failed: {e}", exc_info=global_args.verbose_level >= 2
         )
-        upload_error_occurred = True
     except Exception as e:
         logger.critical(
             f"An unexpected critical error occurred in upload processing: {e}",
             exc_info=True,
         )
-        upload_error_occurred = True
     finally:
         if "api_client" in locals() and api_client:
             await api_client.close()

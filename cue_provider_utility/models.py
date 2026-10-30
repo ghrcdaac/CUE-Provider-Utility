@@ -118,6 +118,7 @@ class GlobalArgs(BaseModel):
     log_file_override: Optional[Path] = None
     verbose_level: int = 0
     quiet_mode: bool = False
+    json_events: bool = False
     config: AppConfig = Field(default_factory=AppConfig)
 
 

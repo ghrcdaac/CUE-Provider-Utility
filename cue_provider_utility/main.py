@@ -24,7 +24,13 @@ from .ignored_files_handler import (
 from .uploader import process_upload
 from . import __version__
 from .models import GlobalArgs
-from .exceptions import CUEProviderError, UploadCancelledError, AuthError
+from .exceptions import (
+    CUEProviderError,
+    UploadCancelledError,
+    AuthError,
+    UploadError,
+)
+from . import events, messages
 
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -198,6 +204,52 @@ def sync_global_options(
         setup_logging(log_path=final_log_path, console_log_level=log_level.upper())
 
 
+def json_events_option(f: Callable[..., Any]) -> Callable[..., Any]:
+    """Hidden ``--json-events`` flag (NDJSON events on stdout, for the desktop app)."""
+    return click.option(
+        "--json-events",
+        "json_events",
+        is_flag=True,
+        hidden=True,
+        help="Emit newline-delimited JSON events on stdout (desktop app).",
+    )(f)
+
+
+def _start_events(json_events: bool, global_args: GlobalArgs) -> None:
+    """Turns on events mode: stdout = NDJSON only, human console output muted."""
+    if not json_events:
+        return
+    global_args.json_events = True
+    events.start_session(events.JsonLinesSink())
+    rich_console.quiet = True
+    env = global_args.env_cli or global_args.config.default_env
+    host = None
+    try:
+        host = urlparse(str(getattr(global_args.config.environments, env))).hostname
+    except Exception:
+        pass
+    events.hello(env, host)
+
+
+def _finish_events(collection: Optional[str] = None, cancelled: bool = False) -> None:
+    """Emits the batch notice and the final ``batch_done`` event (events mode only)."""
+    if not events.enabled():
+        return
+    session = events.current()
+    counts = session.counts()
+    if cancelled:
+        messages.report("CANCELLED")
+    elif counts["failed"]:
+        messages.report(
+            "BATCH_PARTIAL", succeeded=counts["succeeded"], failed=counts["failed"]
+        )
+    elif counts["succeeded"]:
+        messages.report(
+            "BATCH_OK", succeeded=counts["succeeded"], collection=collection or ""
+        )
+    session.batch_done(cancelled=cancelled)
+
+
 @cli_app.command("upload")
 @add_global_options
 @click.option(
@@ -239,6 +291,7 @@ def sync_global_options(
     is_flag=True,
     help="Skip confirmation prompt for folder uploads.",
 )
+@json_events_option
 @click.pass_context
 def upload_command(
     ctx: click.Context,
@@ -248,6 +301,7 @@ def upload_command(
     file_concurrency: Optional[int],
     part_concurrency: Optional[int],
     auto_approve: bool,
+    json_events: bool,
     api_key_cli_sub: Optional[str],
     env_sub: Optional[str],
     config_path_override_sub: Optional[Path],
@@ -267,12 +321,15 @@ def upload_command(
     )
     global_args: GlobalArgs = ctx.obj
     config = global_args.config
+    _start_events(json_events, global_args)
 
     api_key, key_source = get_api_key(global_args.api_key_cli, config, global_args)
     if not api_key:
         rich_console.print(
             "[bold red]API Key not found. Please configure it using 'cue-upload configure' or use the --token option.[/bold red]"
         )
+        messages.report("AUTH_MISSING", env=global_args.env_cli or config.default_env)
+        _finish_events(collection)
         sys.exit(1)
 
     if key_source and not global_args.quiet_mode:
@@ -302,11 +359,16 @@ def upload_command(
         rich_console.print(
             "\n[bold green]✅ Upload process finished successfully.[/bold green]"
         )
+        _finish_events(collection)
     except UploadCancelledError as e:
         rich_console.print(f"\n[yellow]{e}[/yellow]")
+        _finish_events(collection, cancelled=True)
         sys.exit(0)
     except (CUEProviderError, AuthError) as e:
         rich_console.print(f"\n[bold red]Error: {e}[/bold red]")
+        if not (isinstance(e, UploadError) and events.current().counts()["failed"]):
+            messages.report_exception(e, name=upload_path.name)
+        _finish_events(collection)
         if global_args.verbose_level < 2:
             rich_console.print(
                 "[dim]Hint: For more details, run with the -vv flag.[/dim]"
@@ -319,6 +381,8 @@ def upload_command(
         logging.getLogger(__name__).exception(
             "Unexpected critical error in upload command"
         )
+        messages.report("INTERNAL", detail=str(e))
+        _finish_events(collection)
         sys.exit(1)
 
 
@@ -609,10 +673,12 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool) -> None:
     type=click.Path(path_type=Path),
     help="Path to a custom failed uploads log file.",
 )
+@json_events_option
 @click.pass_context
 def retry_command(
     ctx: click.Context,
     failed_log_override: Optional[Path],
+    json_events: bool,
     api_key_cli_sub: Optional[str],
     env_sub: Optional[str],
     config_path_override_sub: Optional[Path],
@@ -635,12 +701,14 @@ def retry_command(
     )
     global_args: GlobalArgs = ctx.obj
     config = global_args.config
+    _start_events(json_events, global_args)
     target_failed_log = failed_log_override or config.failed_log_path
 
     if not target_failed_log.exists():
         rich_console.print(
             f"[green]No failed uploads log file found at: {target_failed_log}[/green]"
         )
+        _finish_events()
         return
 
     failed_entries = asyncio.run(
@@ -651,6 +719,7 @@ def retry_command(
         rich_console.print(
             f"[green]No pending failed uploads found in log at {target_failed_log}.[/green]"
         )
+        _finish_events()
         return
 
     rich_console.print(
@@ -667,6 +736,7 @@ def retry_command(
         )
     )
 
+    _finish_events()
     if failed == 0:
         rich_console.print(
             "\n[bold green]✅ All failed uploads were retried and completed successfully![/bold green]"

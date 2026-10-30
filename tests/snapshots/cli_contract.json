@@ -260,6 +260,16 @@
             "--failed-log"
           ],
           "required": false
+        },
+        {
+          "hidden": true,
+          "kind": "Option",
+          "multiple": false,
+          "name": "json_events",
+          "opts": [
+            "--json-events"
+          ],
+          "required": false
         }
       ]
     },
@@ -392,6 +402,16 @@
           "opts": [
             "-y",
             "--auto-approve"
+          ],
+          "required": false
+        },
+        {
+          "hidden": true,
+          "kind": "Option",
+          "multiple": false,
+          "name": "json_events",
+          "opts": [
+            "--json-events"
           ],
           "required": false
         }

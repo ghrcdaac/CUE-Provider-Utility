@@ -21,14 +21,9 @@ from .api_client import ApiClient
 from .utils import get_file_size, validate_file_type, format_bytes
 from .ignored_files_handler import is_path_ignored
 from .logger_setup import rich_console
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TextColumn,
-    TaskProgressColumn,
-    TimeElapsedColumn,
-    TaskID,
-)
+from . import events, messages
+from .progress_adapter import JsonProgress, make_progress
+from rich.progress import TaskID
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +37,7 @@ class FileToUpload:
         self.size = size
         self.status: str = "pending"
         self.error_message: Optional[str] = None
+        self.failure: Optional[BaseException] = None
         self.task_id: Optional[TaskID] = (
             None  # Will hold the ID for its own progress bar task
         )
@@ -109,6 +105,28 @@ async def scan_folder(
     return files_to_upload, total_files_for_upload, total_size_for_upload
 
 
+def remote_path(collection: str, sub_path: Optional[str], name: str) -> str:
+    """Destination shown to the user: ``collection/target/rel`` with ``/`` separators."""
+    parts = [collection, (sub_path or "").replace("\\", "/").strip("/"), name]
+    return "/".join(p for p in parts if p)
+
+
+def report_file_failure(
+    file_id: str,
+    error: BaseException,
+    config: AppConfig,
+    failed_entry_id: Optional[str],
+    name: str,
+) -> None:
+    """Emits FAILED (or RETRY_PENDING when auto-retry will try again) plus a notice."""
+    stage = "RETRY_PENDING" if config.auto_retry else "FAILED"
+    events.current().stage(file_id, stage)
+    if stage == "FAILED":
+        messages.report_exception(
+            error, file_id=file_id, failed_entry_id=failed_entry_id, name=name
+        )
+
+
 async def _upload_one_file_from_folder(
     file_task: FileToUpload,
     collection: str,
@@ -117,7 +135,7 @@ async def _upload_one_file_from_folder(
     config: AppConfig,
     part_concurrency: int,
     file_concurrency: int,
-    progress: Progress,
+    progress: Any,
     overall_folder_task_id: Any,
     session_id: Optional[str] = None,
     env_name: str = "prod",
@@ -136,6 +154,10 @@ async def _upload_one_file_from_folder(
         start=False,
         parent=overall_folder_task_id,
     )
+    file_id: Optional[str] = None
+    if isinstance(progress, JsonProgress):
+        file_id = events.current().file_id_for(file_task.local_path, file_task.size)
+        progress.bind(file_task.task_id, file_id)
 
     effective_api_target_sub_path = base_target_sub_path if base_target_sub_path else ""
     if file_task.relative_path.parent != Path("."):
@@ -173,6 +195,23 @@ async def _upload_one_file_from_folder(
                 task_id=file_task.task_id,
             )
         file_task.status = "success"
+        if file_id:
+            events.current().file_done(
+                file_id,
+                checksum,
+                content_type,
+                remote_path(
+                    collection,
+                    effective_api_target_sub_path,
+                    file_task.local_path.name,
+                ),
+            )
+            messages.report(
+                "UPLOAD_OK",
+                file_id=file_id,
+                name=str(file_task.relative_path),
+                collection=collection,
+            )
         progress.update(
             file_task.task_id,
             description=f"[green]✓[/green] {file_task.relative_path}",
@@ -183,6 +222,7 @@ async def _upload_one_file_from_folder(
         logger.error(f"Failed to upload file {file_task.relative_path}: {e}")
         file_task.status = "failed"
         file_task.error_message = str(e)
+        file_task.failure = e
         checksum = getattr(e, "checksum", checksum)
         content_type = getattr(e, "content_type", content_type)
         progress.update(
@@ -196,6 +236,7 @@ async def _upload_one_file_from_folder(
         )
         file_task.status = "failed"
         file_task.error_message = f"An unexpected critical error occurred: {e}"
+        file_task.failure = e
         checksum = getattr(e, "checksum", checksum)
         content_type = getattr(e, "content_type", content_type)
         progress.update(
@@ -203,6 +244,7 @@ async def _upload_one_file_from_folder(
             description=f"[bold red]CRITICAL ERROR[/bold red] {file_task.relative_path}",
         )
     finally:
+        entry_id: Optional[str] = None
         if file_task.status == "failed" and failed_log_path:
             try:
                 entry = FailedUploadEntry(
@@ -218,9 +260,20 @@ async def _upload_one_file_from_folder(
                     part_concurrency=part_concurrency,
                     error_message=file_task.error_message,
                 )
-                await FailedUploadsManager.add_failed_entry(entry, failed_log_path)
+                saved = await FailedUploadsManager.add_failed_entry(
+                    entry, failed_log_path
+                )
+                entry_id = saved.entry_id
             except Exception as log_err:
                 logger.error(f"Failed to write failed upload entry to log: {log_err}")
+        if file_task.status == "failed" and file_id:
+            report_file_failure(
+                file_id,
+                file_task.failure or UploadError(file_task.error_message or ""),
+                config,
+                entry_id,
+                str(file_task.relative_path),
+            )
         progress.update(overall_folder_task_id, advance=1)
 
 
@@ -251,7 +304,8 @@ async def process_folder_upload(
         f"Found [bold]{num_files}[/bold] files to upload, total size: [bold]{format_bytes(total_size)}[/bold]."
     )
 
-    if not auto_approve:
+    # Events mode never prompts on the terminal (the stdin handshake is step C2).
+    if not auto_approve and not events.enabled():
         rich_console.print("Files to be uploaded (first 10 shown):")
         for f_task_item in files_to_upload_list[:10]:
             rich_console.print(
@@ -267,13 +321,16 @@ async def process_folder_upload(
     selected_env_name = global_args.env_cli or config.default_env
     failed_log_path = config.failed_log_path
 
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        console=rich_console,
-    ) as progress:
+    events.emit(
+        "batch_start",
+        files=num_files,
+        bytes=total_size,
+        collection=collection,
+        target_path=target_sub_path,
+        file_concurrency=file_concurrency,
+        part_concurrency=part_concurrency,
+    )
+    with make_progress() as progress:
         folder_task_id = progress.add_task(
             f"[bold]Uploading folder: {folder_path.name}[/bold]", total=num_files
         )
