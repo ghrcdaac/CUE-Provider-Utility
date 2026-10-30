@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Any, Dict, List, Optional, Tuple
 import math
 
 import httpx
@@ -31,6 +31,27 @@ import aiofiles
 logger = logging.getLogger(__name__)
 
 S3_MAX_PARTS = 10000
+
+# Multipart uploads started but not yet completed/aborted (upload_id -> info).
+# On cancel (events mode) every entry is aborted so S3 keeps no orphaned parts.
+ACTIVE_MULTIPART: Dict[str, Tuple[ApiClient, MultipartAbortRequest]] = {}
+
+
+async def abort_active_multipart_uploads() -> int:
+    """Aborts every in-flight multipart upload; returns how many were aborted."""
+    pending = list(ACTIVE_MULTIPART.values())
+    ACTIVE_MULTIPART.clear()
+    aborted = 0
+    for client, request in pending:
+        fresh = ApiClient(client.config, client.global_args, client.api_key)
+        try:
+            await fresh.abort_multipart(request)
+            aborted += 1
+        except Exception as e:
+            logger.warning(f"Could not abort multipart upload {request.upload_id}: {e}")
+        finally:
+            await fresh.close()
+    return aborted
 
 
 class UploadPartTask:
@@ -198,6 +219,10 @@ async def handle_multipart_upload(
 
     s3_upload_id = start_response.upload_id
     file_id = start_response.file_id
+    ACTIVE_MULTIPART[s3_upload_id] = (
+        api_client,
+        MultipartAbortRequest(upload_id=s3_upload_id, file_id=file_id),
+    )
     part_tasks = [
         UploadPartTask(
             i + 1,
@@ -352,6 +377,7 @@ async def handle_multipart_upload(
         rich_console.print(
             "[bold red]   Not all parts uploaded successfully. Aborting...[/bold red]"
         )
+        ACTIVE_MULTIPART.pop(s3_upload_id, None)
         await api_client.abort_multipart(
             MultipartAbortRequest(upload_id=s3_upload_id, file_id=file_id)
         )
@@ -382,6 +408,7 @@ async def handle_multipart_upload(
         ):
             await api_client.complete_multipart(complete_payload)
 
+    ACTIVE_MULTIPART.pop(s3_upload_id, None)
     if not progress:
         rich_console.print(
             f"   [green]✓[/green] Successfully uploaded [bold cyan]{file_path.name}[/bold cyan]."

@@ -72,6 +72,7 @@ class EventSession:
         self.files: Dict[str, _FileState] = {}
         self._by_path: Dict[str, str] = {}
         self.started = time.monotonic()
+        self.auth_failed = False
         self._lock = threading.Lock()
 
     # -- raw emit --
@@ -141,6 +142,18 @@ class EventSession:
             remote_path=remote_path,
             duration_s=round(time.monotonic() - st.started, 3),
         )
+
+    def skip(self, file_id: str) -> None:
+        """Marks a scanned-but-excluded item so it never counts toward totals."""
+        st = self.files.get(file_id)
+        if st is not None:
+            st.state = "SKIPPED"
+
+    def mark_cancelled(self) -> None:
+        """Emits ``CANCELLED`` for every file that didn't finish."""
+        for st in list(self.files.values()):
+            if st.state not in ("COMPLETED", "FAILED", "SKIPPED", "CANCELLED"):
+                self.stage(st.file_id, "CANCELLED")
 
     def counts(self) -> Dict[str, int]:
         c = {"succeeded": 0, "failed": 0, "cancelled": 0, "bytes": 0}

@@ -205,6 +205,9 @@ CATALOG: Dict[str, Msg] = {
 }
 
 
+AUTH_CODES = {"AUTH_MISSING", "AUTH_INVALID", "FORBIDDEN"}
+
+
 class _SafeDict(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
@@ -233,6 +236,8 @@ def report(
         # only goes to the debug log so the console output stays unchanged.
         level = logging.DEBUG
     logger.log(level, "[%s] %s", msg.code, text)
+    if msg.code in AUTH_CODES:
+        events.current().auth_failed = True
     events.notice(
         code=msg.code,
         severity=msg.severity,

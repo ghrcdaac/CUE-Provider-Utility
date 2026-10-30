@@ -108,9 +108,12 @@ def scan_event(
             size = path.stat().st_size
         except OSError:
             size = 0
+    item_id = events.current().file_id_for(path, size)
+    if status != "include":
+        events.current().skip(item_id)
     events.emit(
         "scan_item",
-        item_id=events.current().file_id_for(path, size),
+        item_id=item_id,
         path=str(path),
         rel_path=rel_path.as_posix(),
         size=size,
