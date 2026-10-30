@@ -33,7 +33,8 @@ from .exceptions import (
     UploadError,
     ConfigError,
 )
-from . import control, credential_store, events, messages
+from . import control, credential_store, endpoints, events, messages
+from .endpoints import trusted_options
 from .auth_commands import auth_group, now_iso as _now_iso
 
 
@@ -98,9 +99,12 @@ class OrderedGroup(click.Group):
     is_flag=True,
     help="Minimal console output, showing only critical errors or final summaries.",
 )
+@trusted_options
 @click.pass_context
 def cli_app(
     ctx: click.Context,
+    trusted_endpoints: bool,
+    allow_local: bool,
     api_key_cli: Optional[str],
     env: Optional[str],
     config_path_override: Optional[Path],
@@ -116,6 +120,8 @@ def cli_app(
         log_file_override=log_file_override,
         verbose_level=verbose,
         quiet_mode=quiet,
+        trusted_endpoints=trusted_endpoints,
+        allow_local=allow_local,
     )
 
     log_level = "ERROR" if quiet else "DEBUG" if verbose >= 2 else "INFO"
@@ -239,6 +245,15 @@ def json_events_option(f: Callable[..., Any]) -> Callable[..., Any]:
         hidden=True,
         help="Emit newline-delimited JSON events on stdout (desktop app).",
     )(f)
+
+
+def _apply_trusted(
+    global_args: GlobalArgs, trusted_endpoints: bool, allow_local: bool
+) -> None:
+    """Merges subcommand-level flags and applies the endpoint policy."""
+    global_args.trusted_endpoints = global_args.trusted_endpoints or trusted_endpoints
+    global_args.allow_local = global_args.allow_local or allow_local
+    endpoints.enforce(global_args)
 
 
 def _start_events(json_events: bool, global_args: GlobalArgs) -> None:
@@ -381,6 +396,7 @@ def _load_items(
     help="Skip confirmation prompt for folder uploads.",
 )
 @json_events_option
+@trusted_options
 @click.pass_context
 def upload_command(
     ctx: click.Context,
@@ -393,6 +409,8 @@ def upload_command(
     part_concurrency: Optional[int],
     auto_approve: bool,
     json_events: bool,
+    trusted_endpoints: bool,
+    allow_local: bool,
     api_key_cli_sub: Optional[str],
     env_sub: Optional[str],
     config_path_override_sub: Optional[Path],
@@ -411,6 +429,7 @@ def upload_command(
         quiet_sub,
     )
     global_args: GlobalArgs = ctx.obj
+    _apply_trusted(global_args, trusted_endpoints, allow_local)
     config = global_args.config
     if manifest_path and upload_paths:
         raise click.UsageError("Use either -P/--path or --manifest, not both.")
@@ -828,12 +847,15 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool) -> None:
     help="Never prompt (retry never prompts; accepted for symmetry).",
 )
 @json_events_option
+@trusted_options
 @click.pass_context
 def retry_command(
     ctx: click.Context,
     failed_log_override: Optional[Path],
     non_interactive: bool,
     json_events: bool,
+    trusted_endpoints: bool,
+    allow_local: bool,
     api_key_cli_sub: Optional[str],
     env_sub: Optional[str],
     config_path_override_sub: Optional[Path],
@@ -855,6 +877,7 @@ def retry_command(
         quiet_sub,
     )
     global_args: GlobalArgs = ctx.obj
+    _apply_trusted(global_args, trusted_endpoints, allow_local)
     config = global_args.config
     _start_events(json_events, global_args)
     target_failed_log = failed_log_override or config.failed_log_path

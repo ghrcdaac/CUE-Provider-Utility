@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import click
 
-from . import credential_store
+from . import credential_store, endpoints
 from .auth_handler import (
     SOURCE_CLI,
     SOURCE_CONFIG,
@@ -46,8 +46,11 @@ def _days_left(expires_at: Optional[str]) -> Optional[int]:
 
 
 def _args_for(ctx: click.Context, env: str) -> GlobalArgs:
+    """Arguments for ``env`` with the endpoint policy applied (trusted mode)."""
     base: GlobalArgs = ctx.obj
-    return base.model_copy(update={"env_cli": env})
+    args = base.model_copy(update={"env_cli": env})
+    endpoints.enforce(args)
+    return args
 
 
 def _default_env(ctx: click.Context) -> str:
@@ -125,7 +128,7 @@ def set_key_command(
 ) -> None:
     """Stores an API key for one environment in the OS keyring."""
     env = (env or _default_env(ctx)).lower()
-    host = credential_store.host_for_env(ctx.obj.config, env)
+    host = credential_store.host_for_env(_args_for(ctx, env).config, env)
     if not host:
         raise click.UsageError(f"No API URL configured for environment '{env}'.")
     if from_stdin:
@@ -160,11 +163,10 @@ def set_key_command(
 
 
 def env_status(ctx: click.Context, env: str) -> Dict[str, Any]:
-    config = ctx.obj.config
+    args = _args_for(ctx, env)
+    config = args.config
     host = credential_store.host_for_env(config, env)
-    key, source = get_api_key(
-        ctx.obj.api_key_cli, config, _args_for(ctx, env), warn_shared=False
-    )
+    key, source = get_api_key(ctx.obj.api_key_cli, config, args, warn_shared=False)
     meta = credential_store.load_metadata().get(host or "", {}) if host else {}
     stored = keys_by_source(config, env)
     warnings: List[str] = []
@@ -206,6 +208,9 @@ def env_status(ctx: click.Context, env: str) -> Dict[str, Any]:
 def status_command(ctx: click.Context, env: Optional[str], as_json: bool) -> None:
     """Shows which key each environment would use (never prints the key)."""
     envs = [env.lower()] if env else ENVS
+    if not env and (ctx.obj.trusted_endpoints or endpoints.trusted_from_env()):
+        if not ctx.obj.allow_local:
+            envs = [e for e in envs if e != "local"]
     result = {
         "keyring_available": credential_store.available(),
         "keyring_backend": credential_store.backend_name(),
@@ -246,7 +251,7 @@ def delete_key_command(
 ) -> None:
     """Removes the stored key for one environment."""
     env = (env or _default_env(ctx)).lower()
-    host = credential_store.host_for_env(ctx.obj.config, env)
+    host = credential_store.host_for_env(_args_for(ctx, env).config, env)
     if not host:
         raise click.UsageError(f"No API URL configured for environment '{env}'.")
     removed = credential_store.delete_key(host)
@@ -280,8 +285,8 @@ def test_command(ctx: click.Context, env: Optional[str], as_json: bool) -> None:
     """Checks that the key works with one quick call (never prints targets)."""
     env = (env or _default_env(ctx)).lower()
     args = _args_for(ctx, env)
-    host = credential_store.host_for_env(ctx.obj.config, env)
-    key, source = get_api_key(ctx.obj.api_key_cli, ctx.obj.config, args)
+    host = credential_store.host_for_env(args.config, env)
+    key, source = get_api_key(ctx.obj.api_key_cli, args.config, args)
     out: Dict[str, Any] = {"env": env, "host": host}
     if not key:
         out["result"] = "AUTH_MISSING"
