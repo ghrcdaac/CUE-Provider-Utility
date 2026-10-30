@@ -13,6 +13,8 @@ from rich.logging import RichHandler
 from rich.console import Console
 from rich.text import Text
 
+from .redact import RedactingFilter, RedactingFormatter
+
 DEFAULT_LOG_FILENAME = "cue-upload.log"
 CONSOLE_FORMAT = "%(message)s"
 FILE_FORMAT = (
@@ -80,14 +82,16 @@ def setup_logging(
         tracebacks_show_locals=True,
     )
     rich_handler.setLevel(numeric_console_level)
+    rich_handler.addFilter(RedactingFilter())
     root_logger.addHandler(rich_handler)
 
     if not disable_file_logging:
         try:
             file_handler = logging.FileHandler(effective_log_path, encoding="utf-8")
             file_handler.setLevel(numeric_file_level)
-            file_formatter = logging.Formatter(FILE_FORMAT, datefmt=DATE_FORMAT)
+            file_formatter = RedactingFormatter(FILE_FORMAT, datefmt=DATE_FORMAT)
             file_handler.setFormatter(file_formatter)
+            file_handler.addFilter(RedactingFilter())
             root_logger.addHandler(file_handler)
         except Exception as e:
             root_logger.error(
