@@ -32,6 +32,8 @@ class AppConfig(BaseModel):
 
     # New setting to control where the API key is saved
     save_key_to_netrc: bool = Field(default=True)
+    # Store keys in the OS keyring (per environment host); older versions ignore it.
+    use_keyring: bool = Field(default=True)
 
     multipart_threshold_gb: int = Field(default=1, gt=0)
     multipart_chunk_size_mb: int = Field(default=256, gt=0)

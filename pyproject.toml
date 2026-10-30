@@ -19,6 +19,7 @@ aiofiles = ">=23.2.1,<24.0.0"
 pydantic = ">=2.5.0,<3.0.0"
 toml = ">=0.10.2,<0.11.0"
 rich = ">=13.7.0,<14.0.0"
+keyring = ">=25.0.0,<26.0.0"
 
 [tool.poetry.group.dev.dependencies]
 # Dependencies used only for development (testing, linting, formatting).

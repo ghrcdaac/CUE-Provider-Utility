@@ -233,6 +233,8 @@ class ApiClient:
 
             return response
 
+        except APIRequestError:
+            raise  # keep the HTTP status code for callers
         except httpx.TimeoutException as e:
             msg = f"Request timed out connecting to {self.global_args.env_cli or self.config.default_env} environment."
             logger.error(msg, exc_info=self.global_args.verbose_level >= 2)
