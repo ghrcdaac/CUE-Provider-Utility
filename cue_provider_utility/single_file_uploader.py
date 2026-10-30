@@ -7,7 +7,14 @@ from typing import Optional, Any
 
 import aiofiles
 import httpx
-from rich.progress import Progress, BarColumn, TextColumn, TransferSpeedColumn, TimeRemainingColumn, SpinnerColumn
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TextColumn,
+    TransferSpeedColumn,
+    TimeRemainingColumn,
+    SpinnerColumn,
+)
 
 from .api_client import ApiClient
 from .exceptions import APIRequestError, FileProcessingError, UploadError
@@ -58,15 +65,19 @@ async def _perform_upload(
             progress.update(task_id, description=f"Preparing {file_path.name}")
             prepare_response = await api_client.prepare_single_upload(prepare_payload)
 
-            s3_headers = {'Content-Type': mime_type, 'Content-Length': str(file_size)}
+            s3_headers = {"Content-Type": mime_type, "Content-Length": str(file_size)}
 
             # Step 3: Upload the file data to the presigned URL
-            progress.reset(task_id, total=file_size, description=f"Uploading {file_path.name}")
+            progress.reset(
+                task_id, total=file_size, description=f"Uploading {file_path.name}"
+            )
             async with httpx.AsyncClient(timeout=None) as client:
                 response = await client.put(
                     url=str(prepare_response.presigned_url),
-                    content=api_client.read_in_chunks(file_path, progress=progress, task_id=task_id),
-                    headers=s3_headers
+                    content=api_client.read_in_chunks(
+                        file_path, progress=progress, task_id=task_id
+                    ),
+                    headers=s3_headers,
                 )
                 response.raise_for_status()
                 s3_etag = response.headers.get("ETag", "").strip('"')
@@ -89,7 +100,10 @@ async def _perform_upload(
             return checksum_sha256, mime_type
         except Exception as e:
             if not isinstance(e, UploadError):
-                err = UploadError(f"Upload failed for {file_path.name}. Reason: {e}", original_exception=e)
+                err = UploadError(
+                    f"Upload failed for {file_path.name}. Reason: {e}",
+                    original_exception=e,
+                )
             else:
                 err = e
             setattr(err, "checksum", checksum_sha256)
@@ -126,19 +140,39 @@ async def handle_single_file_upload(
             TransferSpeedColumn(),
             TimeRemainingColumn(),
             console=rich_console,
-            transient=True # Makes the bar disappear on completion
+            transient=True,  # Makes the bar disappear on completion
         ) as new_progress:
-            new_task_id = new_progress.add_task(f"Uploading {file_path.name}", total=file_size)
-            result = await _perform_upload(
-                file_path, file_size, collection, target_sub_path, api_client, config,
-                new_progress, new_task_id, cached_checksum, cached_content_type
+            new_task_id = new_progress.add_task(
+                f"Uploading {file_path.name}", total=file_size
             )
-        
-        rich_console.print(f"   [green]✓[/green] Successfully uploaded [bold cyan]{file_path.name}[/bold cyan].")
+            result = await _perform_upload(
+                file_path,
+                file_size,
+                collection,
+                target_sub_path,
+                api_client,
+                config,
+                new_progress,
+                new_task_id,
+                cached_checksum,
+                cached_content_type,
+            )
+
+        rich_console.print(
+            f"   [green]✓[/green] Successfully uploaded [bold cyan]{file_path.name}[/bold cyan]."
+        )
         return result
     else:
         # This is part of a folder upload; use the existing progress and task_id.
         return await _perform_upload(
-            file_path, file_size, collection, target_sub_path, api_client, config,
-            progress, task_id, cached_checksum, cached_content_type
+            file_path,
+            file_size,
+            collection,
+            target_sub_path,
+            api_client,
+            config,
+            progress,
+            task_id,
+            cached_checksum,
+            cached_content_type,
         )

@@ -11,23 +11,24 @@ from .netrc_handler import get_key_from_netrc
 logger = logging.getLogger(__name__)
 ENV_VAR_NAME = "CUE_UPLOAD_API_TOKEN"
 
+
 def get_key_from_env() -> Optional[str]:
     """Retrieves API key from the environment variable."""
     return os.getenv(ENV_VAR_NAME)
+
 
 def get_key_from_config(config: AppConfig) -> Optional[str]:
     """Retrieves API key from the application configuration."""
     return config.api_key
 
+
 def get_api_key(
-    key_from_cli: Optional[str],
-    config: AppConfig,
-    global_args: GlobalArgs
+    key_from_cli: Optional[str], config: AppConfig, global_args: GlobalArgs
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Retrieves the authentication API key based on the defined order of precedence.
     Returns the key and its source.
-    
+
     Priority Order:
     1. Command-line argument (--token)
     2. Environment variable (CUE_UPLOAD_API_TOKEN)

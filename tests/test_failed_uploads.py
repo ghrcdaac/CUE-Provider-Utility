@@ -3,7 +3,11 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from cue_provider_utility.models import FailedUploadEntry, AppConfig
-from cue_provider_utility.failed_uploads_handler import FailedUploadsManager, load_failed_uploads_container
+from cue_provider_utility.failed_uploads_handler import (
+    FailedUploadsManager,
+    load_failed_uploads_container,
+)
+
 
 @pytest.mark.asyncio
 async def test_failed_uploads_manager_add_and_remove():
@@ -17,7 +21,7 @@ async def test_failed_uploads_manager_add_and_remove():
             env="prod",
             file_size=1024,
             content_type="text/plain",
-            checksum="dummy_checksum_1"
+            checksum="dummy_checksum_1",
         )
 
         entry2 = FailedUploadEntry(
@@ -25,7 +29,7 @@ async def test_failed_uploads_manager_add_and_remove():
             file_path=Path(tmp_dir) / "test2.nc",
             collection="TEST_COLLECTION",
             env="uat",
-            file_size=2048
+            file_size=2048,
         )
 
         # Add entries
@@ -41,23 +45,28 @@ async def test_failed_uploads_manager_add_and_remove():
         assert len(all_entries) == 2
 
         # Verify filtering by session_id
-        session1_entries = await FailedUploadsManager.get_failed_entries(log_path, session_id="session-1")
+        session1_entries = await FailedUploadsManager.get_failed_entries(
+            log_path, session_id="session-1"
+        )
         assert len(session1_entries) == 1
         assert session1_entries[0].checksum == "dummy_checksum_1"
 
         # Remove an entry
-        removed = await FailedUploadsManager.remove_failed_entry(saved1.entry_id, log_path)
+        removed = await FailedUploadsManager.remove_failed_entry(
+            saved1.entry_id, log_path
+        )
         assert removed is True
 
         remaining = await FailedUploadsManager.get_failed_entries(log_path)
         assert len(remaining) == 1
         assert remaining[0].entry_id == saved2.entry_id
 
+
 @pytest.mark.asyncio
 async def test_manual_entry_without_ids():
     with TemporaryDirectory() as tmp_dir:
         log_path = Path(tmp_dir) / "failed_uploads.json"
-        
+
         # Simulate a manually created raw JSON file without entry_id or timestamp
         json_content = """{
             "version": "1.0",
@@ -79,13 +88,16 @@ async def test_manual_entry_without_ids():
         assert manual_entry.timestamp is not None
         assert manual_entry.collection == "MANUAL_COLLECTION"
 
+
 @pytest.mark.asyncio
 async def test_get_mime_type_resolution():
     from cue_provider_utility.utils import get_mime_type
-    
+
     assert await get_mime_type(Path("sample.nc")) == "application/x-netcdf"
     assert await get_mime_type(Path("sample.nc.gz")) == "application/x-netcdf"
     assert await get_mime_type(Path("sample.dat.gz")) == "application/gzip"
     assert await get_mime_type(Path("sample.h5")) == "application/x-hdf5"
-    assert await get_mime_type(Path("sample.zip")) in ["application/zip", "application/x-zip-compressed"]
-
+    assert await get_mime_type(Path("sample.zip")) in [
+        "application/zip",
+        "application/x-zip-compressed",
+    ]

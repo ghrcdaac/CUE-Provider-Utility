@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 from rich.progress import Progress, TaskID
 
 from cue_provider_utility.api_client import ApiClient
-from cue_provider_utility.models import AppConfig, GlobalArgs, PrepareSingleResponse, UploadCompletionResponse
+from cue_provider_utility.models import (
+    AppConfig,
+    GlobalArgs,
+    PrepareSingleResponse,
+    UploadCompletionResponse,
+)
 from cue_provider_utility.single_file_uploader import handle_single_file_upload
 
 
@@ -20,7 +25,9 @@ async def test_read_in_chunks_advances_progress_with_task_id_zero():
 
         config = AppConfig()
         global_args = GlobalArgs()
-        api_client = ApiClient(config=config, global_args=global_args, api_key="test_key")
+        api_client = ApiClient(
+            config=config, global_args=global_args, api_key="test_key"
+        )
 
         progress = Progress()
         task_id = progress.add_task("test", total=file_size)
@@ -28,7 +35,9 @@ async def test_read_in_chunks_advances_progress_with_task_id_zero():
 
         chunks = []
         chunk_size = 64 * 1024
-        async for chunk in api_client.read_in_chunks(test_file, chunk_size=chunk_size, progress=progress, task_id=task_id):
+        async for chunk in api_client.read_in_chunks(
+            test_file, chunk_size=chunk_size, progress=progress, task_id=task_id
+        ):
             chunks.append(chunk)
 
         assert b"".join(chunks) == b"A" * file_size
@@ -46,30 +55,36 @@ async def test_handle_single_file_upload_streaming(httpx_mock):
 
         config = AppConfig()
         global_args = GlobalArgs()
-        api_client = ApiClient(config=config, global_args=global_args, api_key="test_key")
+        api_client = ApiClient(
+            config=config, global_args=global_args, api_key="test_key"
+        )
 
-        presigned_url = "https://s3.amazonaws.com/test-bucket/test_file.dat?signature=fake"
+        presigned_url = (
+            "https://s3.amazonaws.com/test-bucket/test_file.dat?signature=fake"
+        )
 
         from uuid import uuid4
+
         mock_file_id = uuid4()
 
         # Mock API client methods
-        api_client.prepare_single_upload = AsyncMock(return_value=PrepareSingleResponse(
-            file_id=mock_file_id,
-            presigned_url=presigned_url,
-            fields=None
-        ))
-        api_client.complete_single_upload = AsyncMock(return_value=UploadCompletionResponse(
-            message="Success",
-            file_id=str(mock_file_id)
-        ))
+        api_client.prepare_single_upload = AsyncMock(
+            return_value=PrepareSingleResponse(
+                file_id=mock_file_id, presigned_url=presigned_url, fields=None
+            )
+        )
+        api_client.complete_single_upload = AsyncMock(
+            return_value=UploadCompletionResponse(
+                message="Success", file_id=str(mock_file_id)
+            )
+        )
 
         # Mock S3 PUT endpoint
         httpx_mock.add_response(
             url=presigned_url,
             method="PUT",
             status_code=200,
-            headers={"ETag": '"mock-etag-abc"'}
+            headers={"ETag": '"mock-etag-abc"'},
         )
 
         progress = Progress()
@@ -84,7 +99,7 @@ async def test_handle_single_file_upload_streaming(httpx_mock):
             api_client=api_client,
             config=config,
             progress=progress,
-            task_id=task_id
+            task_id=task_id,
         )
 
         assert checksum is not None
