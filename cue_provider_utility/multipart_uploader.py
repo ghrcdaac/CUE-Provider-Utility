@@ -18,6 +18,7 @@ from .api_client import ApiClient
 from .utils import calculate_sha256_checksum, get_mime_type, format_bytes
 from .logger_setup import rich_console
 from .progress_adapter import stage
+from .endpoints import tls_verify
 from rich.progress import (
     Progress,
     BarColumn,
@@ -98,7 +99,9 @@ class UploadPartTask:
                     get_url_payload
                 )
 
-                async with httpx.AsyncClient(timeout=None) as s3_client:
+                async with httpx.AsyncClient(
+                    timeout=None, verify=tls_verify()
+                ) as s3_client:
                     s3_response = await s3_client.put(
                         str(presigned_url_response.presigned_url),
                         content=data,

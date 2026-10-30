@@ -22,6 +22,7 @@ from .models import (
     MultipartAbortRequest,
 )
 from .exceptions import APIRequestError, ConfigError
+from .endpoints import tls_verify
 from rich.progress import Progress
 import aiofiles
 from pathlib import Path
@@ -95,7 +96,8 @@ class ApiClient:
 
         self.http_client = httpx.AsyncClient(
             timeout=DEFAULT_TIMEOUT,
-            follow_redirects=True,
+            follow_redirects=True,  # httpx drops Authorization on cross-origin hops
+            verify=tls_verify(),
             event_hooks=hooks,
             http1=True,
             limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
@@ -321,7 +323,7 @@ class ApiClient:
     ) -> httpx.Response:
         headers = {"Content-Length": str(content_length)}
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
+            async with httpx.AsyncClient(timeout=None, verify=tls_verify()) as client:
                 response = await client.put(url, content=file_data, headers=headers)
 
             if response.status_code != 200:

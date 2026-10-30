@@ -8,18 +8,28 @@ from pydantic import (
     field_validator,
     field_serializer,
 )
-from typing import List, Optional, Any
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 from pathlib import Path
 
 # --- Configuration Models ---
 
 
+# Official API URLs. `--trusted-endpoints` (desktop app) always uses these and
+# ignores `environments.*` in config.toml.
+BUILTIN_ENVIRONMENTS: Dict[str, str] = {
+    "prod": "https://upload.earthdata.nasa.gov/api",
+    "uat": "https://upload.uat.earthdata.nasa.gov/api",
+    "sit": "https://upload.sit.earthdata.nasa.gov/api",
+    "local": "http://localhost:8000",
+}
+
+
 class EnvironmentURLs(BaseModel):
-    prod: HttpUrl = Field(default="https://upload.earthdata.nasa.gov/api")  # type: ignore[assignment]
-    uat: HttpUrl = Field(default="https://upload.uat.earthdata.nasa.gov/api")  # type: ignore[assignment]
-    sit: HttpUrl = Field(default="https://upload.sit.earthdata.nasa.gov/api")  # type: ignore[assignment]
-    local: HttpUrl = Field(default="http://localhost:8000")  # type: ignore[assignment]
+    prod: HttpUrl = Field(default=BUILTIN_ENVIRONMENTS["prod"])  # type: ignore[assignment]
+    uat: HttpUrl = Field(default=BUILTIN_ENVIRONMENTS["uat"])  # type: ignore[assignment]
+    sit: HttpUrl = Field(default=BUILTIN_ENVIRONMENTS["sit"])  # type: ignore[assignment]
+    local: HttpUrl = Field(default=BUILTIN_ENVIRONMENTS["local"])  # type: ignore[assignment]
 
     @field_serializer("prod", "uat", "sit", "local", when_used="json-unless-none")
     def serialize_urls_to_str(self, v: HttpUrl) -> str:
@@ -122,6 +132,8 @@ class GlobalArgs(BaseModel):
     quiet_mode: bool = False
     json_events: bool = False
     non_interactive: bool = False
+    trusted_endpoints: bool = False
+    allow_local: bool = False
     config: AppConfig = Field(default_factory=AppConfig)
 
 
