@@ -1,0 +1,401 @@
+{
+  "help": {
+    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. -h, --help Show this message and exit. Commands: configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. retry Retries all failed upload entries saved in the failed uploads log file. upload Uploads files or directories to CUE.",
+    "configure": "Usage: cli-app configure [OPTIONS] Interactively configures CUE Provider Utility settings. Options: --key Only prompt for and save the API key. -h, --help Show this message and exit.",
+    "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds a new glob pattern to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
+    "ignore add": "Usage: cli-app ignore add [OPTIONS] PATTERN Adds a new glob pattern to the user's ignore list. Options: -h, --help Show this message and exit.",
+    "ignore list": "Usage: cli-app ignore list [OPTIONS] Displays active system default and user-defined ignored file patterns. Options: -h, --help Show this message and exit.",
+    "ignore remove": "Usage: cli-app ignore remove [OPTIONS] PATTERN Removes a glob pattern from the user's ignore list. Options: -h, --help Show this message and exit.",
+    "ignore reset": "Usage: cli-app ignore reset [OPTIONS] Clears all patterns from the user's ignore list. Options: --yes Confirm the action without prompting. -h, --help Show this message and exit.",
+    "logs": "Usage: cli-app logs [OPTIONS] Views application logs directly in the terminal. Options: -n, --lines INTEGER Show the last N lines of the log file. --raw Display raw log content without special formatting. -h, --help Show this message and exit.",
+    "retry": "Usage: cli-app retry [OPTIONS] Retries all failed upload entries saved in the failed uploads log file. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -f, --failed-log PATH Path to a custom failed uploads log file. -h, --help Show this message and exit.",
+    "upload": "Usage: cli-app upload [OPTIONS] Uploads files or directories to CUE. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -P, --path PATH Local file or directory path to be uploaded. [required] -c, --collection TEXT Name of the target collection in the backend system. [required] -tp, --target-path TEXT User-defined sub-path within the collection for organization. -fc, --file-concurrency INTEGER RANGE Max number of files to upload concurrently (folder uploads). [x>=1] -pc, --part-concurrency INTEGER RANGE Max concurrent parts for a single multipart file. [x>=1] -y, --auto-approve Skip confirmation prompt for folder uploads. -h, --help Show this message and exit."
+  },
+  "structure": {
+    "<root>": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "version",
+          "opts": [
+            "--version"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "api_key_cli",
+          "opts": [
+            "-t",
+            "--token"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "config_path_override",
+          "opts": [
+            "--config"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "log_file_override",
+          "opts": [
+            "--log-file"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "verbose",
+          "opts": [
+            "-v",
+            "--verbose"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "quiet",
+          "opts": [
+            "-q",
+            "--quiet"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "configure": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "set_key_only",
+          "opts": [
+            "--key"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "ignore": {
+      "hidden": false,
+      "params": []
+    },
+    "ignore add": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Argument",
+          "multiple": false,
+          "name": "pattern",
+          "opts": [
+            "pattern"
+          ],
+          "required": true
+        }
+      ]
+    },
+    "ignore list": {
+      "hidden": false,
+      "params": []
+    },
+    "ignore remove": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Argument",
+          "multiple": false,
+          "name": "pattern",
+          "opts": [
+            "pattern"
+          ],
+          "required": true
+        }
+      ]
+    },
+    "ignore reset": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "yes",
+          "opts": [
+            "--yes"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "logs": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "lines",
+          "opts": [
+            "-n",
+            "--lines"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "raw",
+          "opts": [
+            "--raw"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "retry": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "quiet_sub",
+          "opts": [
+            "-q",
+            "--quiet"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "verbose_sub",
+          "opts": [
+            "-v",
+            "--verbose"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "log_file_override_sub",
+          "opts": [
+            "--log-file"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "config_path_override_sub",
+          "opts": [
+            "--config"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env_sub",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "api_key_cli_sub",
+          "opts": [
+            "-t",
+            "--token"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "failed_log_override",
+          "opts": [
+            "-f",
+            "--failed-log"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "upload": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "quiet_sub",
+          "opts": [
+            "-q",
+            "--quiet"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "verbose_sub",
+          "opts": [
+            "-v",
+            "--verbose"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "log_file_override_sub",
+          "opts": [
+            "--log-file"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "config_path_override_sub",
+          "opts": [
+            "--config"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env_sub",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "api_key_cli_sub",
+          "opts": [
+            "-t",
+            "--token"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "upload_path",
+          "opts": [
+            "-P",
+            "--path"
+          ],
+          "required": true
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "collection",
+          "opts": [
+            "-c",
+            "--collection"
+          ],
+          "required": true
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "target_path",
+          "opts": [
+            "-tp",
+            "--target-path"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "file_concurrency",
+          "opts": [
+            "-fc",
+            "--file-concurrency"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "part_concurrency",
+          "opts": [
+            "-pc",
+            "--part-concurrency"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "auto_approve",
+          "opts": [
+            "-y",
+            "--auto-approve"
+          ],
+          "required": false
+        }
+      ]
+    }
+  }
+}
