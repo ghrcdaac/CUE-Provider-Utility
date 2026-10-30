@@ -1,4 +1,5 @@
 import asyncio
+import os
 import json
 import click
 import sys
@@ -30,11 +31,34 @@ from .exceptions import (
     UploadCancelledError,
     AuthError,
     UploadError,
+    ConfigError,
 )
-from . import events, messages
+from . import control, events, messages
 
 
-@click.group(context_settings=dict(help_option_names=["-h", "--help"]))
+# Friendly, fixed order in `cue-upload --help`; anything else is listed after.
+COMMAND_ORDER = ["upload", "retry", "auth", "configure", "ignore", "logs"]
+HELP_EPILOG = """\b
+Examples:
+  cue-upload upload -P ./data -c my_collection
+  cue-upload retry
+  cue-upload configure"""
+
+
+class OrderedGroup(click.Group):
+    def list_commands(self, ctx: click.Context) -> List[str]:
+        def key(name: str) -> Tuple[int, str]:
+            pos = COMMAND_ORDER.index(name) if name in COMMAND_ORDER else 99
+            return pos, name
+
+        return sorted(self.commands, key=key)
+
+
+@click.group(
+    cls=OrderedGroup,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+    epilog=HELP_EPILOG,
+)
 @click.version_option(__version__, package_name="CUE-Provider-Utility")
 @click.option(
     "-t",
@@ -223,6 +247,7 @@ def _start_events(json_events: bool, global_args: GlobalArgs) -> None:
     global_args.json_events = True
     events.start_session(events.JsonLinesSink())
     rich_console.quiet = True
+    control.start()
     env = global_args.env_cli or global_args.config.default_env
     host = None
     try:
@@ -232,11 +257,38 @@ def _start_events(json_events: bool, global_args: GlobalArgs) -> None:
     events.hello(env, host)
 
 
+# Exit codes in --json-events mode (terminal mode keeps today's 0/1).
+EXIT_CODES = {
+    "ok": 0,
+    "failed": 1,
+    "usage": 2,
+    "auth": 3,
+    "cancelled": 130,
+    "internal": 70,
+}
+
+
+def _exit(kind: str, terminal_code: int) -> None:
+    """Exits with the events-mode code for ``kind`` or today's terminal code."""
+    control.stop()
+    sys.exit(EXIT_CODES[kind] if events.enabled() else terminal_code)
+
+
+def _failure_kind(e: BaseException) -> str:
+    if isinstance(e, AuthError) or events.current().auth_failed:
+        return "auth"
+    if isinstance(e, ConfigError):
+        return "usage"
+    return "failed"
+
+
 def _finish_events(collection: Optional[str] = None, cancelled: bool = False) -> None:
     """Emits the batch notice and the final ``batch_done`` event (events mode only)."""
     if not events.enabled():
         return
     session = events.current()
+    if cancelled:
+        session.mark_cancelled()
     counts = session.counts()
     if cancelled:
         messages.report("CANCELLED")
@@ -374,7 +426,7 @@ def upload_command(
         )
         messages.report("AUTH_MISSING", env=global_args.env_cli or config.default_env)
         _finish_events(collection)
-        sys.exit(1)
+        _exit("auth", 1)
     single = items[0].path if len(items) == 1 and not manifest_path else None
     upload_label = str(single) if single else f"{len(items)} item(s)"
 
@@ -403,17 +455,19 @@ def upload_command(
     try:
         if single is not None:
             # One -P: exactly today's code path.
-            asyncio.run(process_upload(source_path=single, **common))
+            work = process_upload(source_path=single, **common)
         else:
-            asyncio.run(process_upload_items(items=items, **common))
+            work = process_upload_items(items=items, **common)
+        asyncio.run(control.run_cancellable(work))
         rich_console.print(
             "\n[bold green]✅ Upload process finished successfully.[/bold green]"
         )
         _finish_events(collection)
+        control.stop()
     except UploadCancelledError as e:
         rich_console.print(f"\n[yellow]{e}[/yellow]")
         _finish_events(collection, cancelled=True)
-        sys.exit(0)
+        _exit("cancelled", 0)
     except (CUEProviderError, AuthError) as e:
         rich_console.print(f"\n[bold red]Error: {e}[/bold red]")
         if not (isinstance(e, UploadError) and events.current().counts()["failed"]):
@@ -423,9 +477,10 @@ def upload_command(
             rich_console.print(
                 "[dim]Hint: For more details, run with the -vv flag.[/dim]"
             )
-        sys.exit(1)
+        _exit(_failure_kind(e), 1)
     except click.ClickException:
         _finish_events(collection)
+        control.stop()
         raise
     except Exception as e:
         rich_console.print(
@@ -436,7 +491,7 @@ def upload_command(
         )
         messages.report("INTERNAL", detail=str(e))
         _finish_events(collection)
-        sys.exit(1)
+        _exit("internal", 1)
 
 
 @cli_app.command("configure")
@@ -726,11 +781,19 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool) -> None:
     type=click.Path(path_type=Path),
     help="Path to a custom failed uploads log file.",
 )
+@click.option(
+    "--non-interactive",
+    "non_interactive",
+    is_flag=True,
+    hidden=True,
+    help="Never prompt (retry never prompts; accepted for symmetry).",
+)
 @json_events_option
 @click.pass_context
 def retry_command(
     ctx: click.Context,
     failed_log_override: Optional[Path],
+    non_interactive: bool,
     json_events: bool,
     api_key_cli_sub: Optional[str],
     env_sub: Optional[str],
@@ -779,15 +842,23 @@ def retry_command(
         f"Found [bold cyan]{len(failed_entries)}[/bold cyan] failed upload item(s) in [dim]{target_failed_log}[/dim]"
     )
 
-    succeeded, failed = asyncio.run(
-        retry_failed_entries(
-            entries=failed_entries,
-            config=config,
-            global_args=global_args,
-            failed_log_path=target_failed_log,
-            retry_rounds=max(1, config.retry_attempts),
+    try:
+        succeeded, failed = asyncio.run(
+            control.run_cancellable(
+                retry_failed_entries(
+                    entries=failed_entries,
+                    config=config,
+                    global_args=global_args,
+                    failed_log_path=target_failed_log,
+                    retry_rounds=max(1, config.retry_attempts),
+                )
+            )
         )
-    )
+    except UploadCancelledError as e:
+        rich_console.print(f"\n[yellow]{e}[/yellow]")
+        _finish_events(cancelled=True)
+        _exit("cancelled", 0)
+        return
 
     _finish_events()
     if failed == 0:
@@ -798,7 +869,34 @@ def retry_command(
         rich_console.print(
             f"\n[bold yellow]Retry complete: {succeeded} succeeded, {failed} still failing.[/bold yellow]"
         )
-        sys.exit(1)
+        _exit("auth" if events.current().auth_failed else "failed", 1)
+    control.stop()
+
+
+_ORIGINAL_HIDDEN: Dict[int, bool] = {}
+
+
+def apply_help_visibility(show_all: bool) -> None:
+    """Shows hidden GUI plumbing in --help when ``show_all`` (support/developers).
+
+    Set ``CUE_UPLOAD_SHOW_ALL_HELP=1`` to enable it from the shell.
+    """
+
+    def walk(cmd: click.Command) -> None:
+        items: List[Any] = [cmd, *cmd.params]
+        for item in items:
+            if not hasattr(item, "hidden"):
+                continue
+            original = _ORIGINAL_HIDDEN.setdefault(id(item), bool(item.hidden))
+            item.hidden = False if show_all else original
+        if isinstance(cmd, click.Group):
+            for sub in cmd.commands.values():
+                walk(sub)
+
+    walk(cli_app)
+
+
+apply_help_visibility(os.environ.get("CUE_UPLOAD_SHOW_ALL_HELP") == "1")
 
 
 if __name__ == "__main__":

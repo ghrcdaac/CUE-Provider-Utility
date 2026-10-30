@@ -15,7 +15,7 @@ from typing import Any, Dict
 import click
 from click.testing import CliRunner
 
-from cue_provider_utility.main import cli_app
+from cue_provider_utility.main import apply_help_visibility, cli_app
 
 FAKE_HOME = Path.home()  # redirected to a temp folder by conftest.py
 
@@ -69,11 +69,19 @@ def _help(args: list, env: Dict[str, str] | None = None) -> str:
 
 def _current() -> Dict[str, Any]:
     structure = _walk(cli_app, ())
-    helps = {}
-    for key in structure:
-        args = [] if key == "<root>" else key.split(" ")
-        helps[key] = _help(args)
-    return {"structure": structure, "help": helps}
+
+    def helps() -> Dict[str, str]:
+        return {
+            key: _help([] if key == "<root>" else key.split(" ")) for key in structure
+        }
+
+    normal = helps()
+    apply_help_visibility(True)  # CUE_UPLOAD_SHOW_ALL_HELP=1
+    try:
+        show_all = helps()
+    finally:
+        apply_help_visibility(False)
+    return {"structure": structure, "help": normal, "help_show_all": show_all}
 
 
 def test_cli_contract_snapshot() -> None:

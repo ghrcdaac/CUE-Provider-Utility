@@ -9,7 +9,13 @@ from cue_provider_utility.exceptions import APIRequestError, UploadError
 from cue_provider_utility.progress_adapter import JsonProgress
 from cue_provider_utility.redact import RedactingFilter, RedactingFormatter, redact
 
-from helpers import mock_single_upload, parse_events, run_cli, write_config
+from helpers import (
+    ControlStream,
+    mock_single_upload,
+    parse_events,
+    run_cli,
+    write_config,
+)
 
 KEY = "cue_sk_abcdefghijklmnopqrstuvwxyz012345"
 
@@ -19,11 +25,12 @@ def cfg(tmp_path: Path) -> Path:
     return write_config(tmp_path)
 
 
-def _upload(cfg: Path, path: Path, *extra: str, input=None):  # type: ignore[no-untyped-def]
+def _upload(cfg: Path, path: Path, *extra: str, input=None, control_stream=None):  # type: ignore[no-untyped-def]
     return run_cli(
         ["--config", str(cfg), "upload", "-P", str(path), "-c", "COLL", "-t", KEY]
         + list(extra),
         input=input,
+        control_stream=control_stream,
     )
 
 
@@ -64,7 +71,8 @@ def test_folder_events(tmp_path: Path, cfg: Path, httpx_mock) -> None:
     mock_single_upload(httpx_mock)
 
     # No -y: events mode never prompts on the terminal; it waits for "start".
-    result = _upload(cfg, d, "--json-events", input='{"cmd":"start"}\n')
+    stream = ControlStream(['{"cmd":"start"}'])
+    result = _upload(cfg, d, "--json-events", control_stream=stream)
     assert result.exit_code == 0, result.output
     evs = parse_events(result.stdout)
     types = [e["type"] for e in evs]
@@ -85,7 +93,7 @@ def test_failure_events(tmp_path: Path, cfg: Path, httpx_mock) -> None:
     mock_single_upload(httpx_mock, prepare_status=401)
 
     result = _upload(cfg, f, "--json-events")
-    assert result.exit_code == 1
+    assert result.exit_code == 3  # auth failure exit code in events mode
     evs = parse_events(result.stdout)
     stages = [e["stage"] for e in evs if e["type"] == "file_stage"]
     assert stages[-1] == "FAILED"

@@ -1,6 +1,8 @@
 """Shared helpers for CLI end-to-end tests (mocked backend, events parsing)."""
 
+import io
 import json
+import queue
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -8,10 +10,11 @@ from uuid import uuid4
 import toml
 from click.testing import CliRunner, Result
 
-from cue_provider_utility import config_manager, events
+from cue_provider_utility import config_manager, control, events
 from cue_provider_utility.logger_setup import rich_console
 from cue_provider_utility.main import cli_app
 
+NL = chr(10)
 API = "http://localhost:8000"
 PRESIGNED = (
     "https://s3.example.com/bucket/obj?X-Amz-Signature=abc123&X-Amz-Credential=cred"
@@ -22,6 +25,8 @@ def reset_cli_state() -> None:
     """Undo process-wide state a previous CLI invocation may have left behind."""
     rich_console.quiet = False
     events.start_session(None)
+    control.stop()
+    control.stream_factory = None
     config_manager._cached_config = None
     config_manager._cached_config_path = None
 
@@ -68,8 +73,35 @@ def mock_single_upload(httpx_mock: Any, prepare_status: int = 200) -> str:
     return file_id
 
 
-def run_cli(args: List[str], input: Optional[str] = None) -> Result:
+class ControlStream(io.TextIOBase):
+    """Stand-in for the desktop app's stdin pipe: stays open until closed."""
+
+    def __init__(self, lines: Optional[List[str]] = None) -> None:
+        self._q: "queue.Queue[str]" = queue.Queue()
+        for line in lines or []:
+            self.push(line)
+
+    def push(self, line: str) -> None:
+        self._q.put(line if line.endswith(NL) else line + NL)
+
+    def close_pipe(self) -> None:
+        self._q.put("")
+
+    def readline(self, size: int = -1) -> str:  # type: ignore[override]
+        return self._q.get()
+
+
+def run_cli(
+    args: List[str],
+    input: Optional[str] = None,
+    control_stream: Optional[ControlStream] = None,
+) -> Result:
+    """Runs the CLI in-process. In events mode stdin stays open (like the GUI's
+    pipe) unless ``input`` is given; ``input=""`` simulates an immediate EOF."""
     reset_cli_state()
+    if "--json-events" in args and input is None:
+        stream = control_stream or ControlStream()
+        control.stream_factory = lambda: stream  # type: ignore[assignment,return-value]
     runner = CliRunner()
     try:
         return runner.invoke(cli_app, args, input=input, catch_exceptions=False)
