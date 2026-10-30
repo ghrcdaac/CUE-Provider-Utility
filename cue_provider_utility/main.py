@@ -33,7 +33,8 @@ from .exceptions import (
     UploadError,
     ConfigError,
 )
-from . import control, events, messages
+from . import control, credential_store, events, messages
+from .auth_commands import auth_group, now_iso as _now_iso
 
 
 # Friendly, fixed order in `cue-upload --help`; anything else is listed after.
@@ -494,6 +495,9 @@ def upload_command(
         _exit("internal", 1)
 
 
+cli_app.add_command(auth_group)
+
+
 @cli_app.command("configure")
 @click.option(
     "--key", "set_key_only", is_flag=True, help="Only prompt for and save the API key."
@@ -510,32 +514,45 @@ def configure_command(ctx: click.Context, set_key_only: bool) -> None:
         """Handles the logic for prompting and saving the API key."""
         rich_console.print("\n[bold]API Key Storage[/bold]")
 
-        save_to_netrc_prompt = "Save API key to the secure .netrc file? (Recommended). If 'no', it will be saved to config.toml."
-        save_to_netrc = click.confirm(
-            save_to_netrc_prompt, default=config.save_key_to_netrc
+        vault_ok = credential_store.available()
+        if config.use_keyring and vault_ok:
+            default_choice = 1
+        else:
+            default_choice = 2 if config.save_key_to_netrc else 3
+        rich_console.print(
+            "Store key in: [1] OS keyring (recommended) [2] .netrc [3] config.toml"
+            + ("" if vault_ok else " [dim](OS keyring not available here)[/dim]")
         )
-        if save_to_netrc != config.save_key_to_netrc:
-            save_config_value(
-                "save_key_to_netrc", save_to_netrc, global_args.config_path_override
+        choice = click.prompt(
+            "Choice", type=click.IntRange(1, 3), default=default_choice
+        )
+        if choice == 1 and not vault_ok:
+            rich_console.print(
+                "[yellow]The OS keyring is not available; using .netrc instead.[/yellow]"
             )
-            setattr(config, "save_key_to_netrc", save_to_netrc)
+            choice = 2
+        updates = {"use_keyring": choice == 1}
+        if choice != 1:  # .netrc vs config.toml keeps its old meaning
+            updates["save_key_to_netrc"] = choice == 2
+        for key, value in updates.items():
+            if getattr(config, key) != value:
+                save_config_value(key, value, global_args.config_path_override)
+                setattr(config, key, value)
 
-        key_location = ".netrc" if config.save_key_to_netrc else "config.toml"
+        key_location = {1: "the OS keyring", 2: ".netrc", 3: "config.toml"}[choice]
 
         hostname = None
-        if config.save_key_to_netrc:
-            try:
-                env = config.default_env
-                base_url_obj = getattr(config.environments, env)
-                hostname = urlparse(str(base_url_obj)).hostname
-            except Exception:
+        if choice in (1, 2):
+            hostname = credential_store.host_for_env(config, config.default_env)
+            if not hostname:
                 rich_console.print(
-                    f"[red]Could not determine hostname for environment '{config.default_env}'. Cannot manage .netrc key.[/red]"
+                    f"[red]Could not determine hostname for environment '{config.default_env}'. Cannot manage {key_location} key.[/red]"
                 )
 
-        key_exists = False
-        if hostname and config.save_key_to_netrc:
-            key_exists = get_key_from_netrc(hostname) is not None
+        if choice == 1:
+            key_exists = bool(hostname and credential_store.get_key(hostname))
+        elif choice == 2:
+            key_exists = bool(hostname and get_key_from_netrc(hostname) is not None)
         else:
             key_exists = (
                 get_config(global_args.config_path_override).api_key is not None
@@ -547,33 +564,55 @@ def configure_command(ctx: click.Context, set_key_only: bool) -> None:
             )
             prompt_msg = "Enter a new key to overwrite, type [bold red]DELETE[/bold red] to remove, or press Enter to skip:"
         else:
-            prompt_msg = f"Enter new API key to save to [bold]{key_location}[/bold] (input is visible, press Enter to skip):"
+            prompt_msg = f"Enter new API key to save to [bold]{key_location}[/bold] (input is hidden, press Enter to skip):"
 
         rich_console.print(prompt_msg)
-        new_key = click.prompt(">", default="", show_default=False, prompt_suffix="")
+        new_key = click.prompt(
+            ">", default="", show_default=False, prompt_suffix="", hide_input=True
+        ).strip()
 
         if new_key.upper() == "DELETE":
-            if hostname and config.save_key_to_netrc:
+            if choice == 1 and hostname:
+                if credential_store.delete_key(hostname):
+                    credential_store.remove_metadata(hostname)
+                    rich_console.print(
+                        f"[yellow]API key for {hostname} removed from the OS keyring.[/yellow]"
+                    )
+            elif choice == 2 and hostname:
                 if remove_key_from_netrc(hostname):
                     rich_console.print(
                         f"[yellow]API key for {hostname} removed from .netrc.[/yellow]"
                     )
-            else:
+            elif choice == 3:
                 save_api_key_to_config(None, global_args.config_path_override)
                 rich_console.print("[yellow]API key removed from config.toml.[/yellow]")
         elif new_key:
-            if hostname and config.save_key_to_netrc:
+            if choice == 1 and hostname:
+                if credential_store.set_key(hostname, new_key):
+                    credential_store.update_metadata(
+                        hostname,
+                        replace=True,
+                        suffix=new_key[-4:],
+                        source="cli",
+                        created_at=_now_iso(),
+                    )
+                    rich_console.print(
+                        f"[green]API key for {hostname} saved to the OS keyring.[/green]"
+                    )
+                else:
+                    rich_console.print(
+                        "[red]Could not save to the OS keyring. Run 'cue-upload configure --key' and choose .netrc.[/red]"
+                    )
+            elif choice == 2 and hostname:
                 save_key_to_netrc(hostname, "cue-cli-user", new_key)
                 rich_console.print(
                     f"[green]API key for {hostname} saved to .netrc.[/green]"
                 )
-            else:
+            elif choice == 3:
                 save_api_key_to_config(new_key, global_args.config_path_override)
                 rich_console.print("[green]API key saved to config.toml.[/green]")
         else:
-            # Only show this message if a key wasn't changed or deleted
-            if not new_key.upper() == "DELETE":
-                rich_console.print("[yellow]API key not changed.[/yellow]")
+            rich_console.print("[yellow]API key not changed.[/yellow]")
 
     # --- Main command logic ---
 

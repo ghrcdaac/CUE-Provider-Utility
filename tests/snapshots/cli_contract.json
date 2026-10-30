@@ -1,6 +1,11 @@
 {
   "help": {
-    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. auth Manages upload keys per environment (OS keyring). configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "auth": "Usage: cli-app auth [OPTIONS] COMMAND [ARGS]... Manages upload keys per environment (OS keyring). Options: -h, --help Show this message and exit. Commands: delete-key Removes the stored key for one environment. set-key Stores an API key for one environment in the OS keyring. status Shows which key each environment would use (never prints the key). test Checks that the key works with one quick call (never prints targets).",
+    "auth delete-key": "Usage: cli-app auth delete-key [OPTIONS] Removes the stored key for one environment. Options: --env [prod|uat|sit|local] Environment (default: default_env). --all-sources Also remove it from .netrc and config.toml. --yes Don't ask for confirmation. -h, --help Show this message and exit.",
+    "auth set-key": "Usage: cli-app auth set-key [OPTIONS] Stores an API key for one environment in the OS keyring. Options: --env [prod|uat|sit|local] Environment (default: default_env). --stdin Read the key from stdin. --key-id TEXT Key id (metadata only). --name TEXT Key name (metadata only). --expires-at TEXT Expiry, ISO 8601 (metadata only). --source TEXT Who stored it. [default: cli] -h, --help Show this message and exit.",
+    "auth status": "Usage: cli-app auth status [OPTIONS] Shows which key each environment would use (never prints the key). Options: --env [prod|uat|sit|local] One environment (default: all). --json Machine-readable output. -h, --help Show this message and exit.",
+    "auth test": "Usage: cli-app auth test [OPTIONS] Checks that the key works with one quick call (never prints targets). Options: --env [prod|uat|sit|local] Environment (default: default_env). --json Machine-readable output. -h, --help Show this message and exit.",
     "configure": "Usage: cli-app configure [OPTIONS] Interactively configures CUE Provider Utility settings. Options: --key Only prompt for and save the API key. -h, --help Show this message and exit.",
     "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds a new glob pattern to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
     "ignore add": "Usage: cli-app ignore add [OPTIONS] PATTERN Adds a new glob pattern to the user's ignore list. Options: -h, --help Show this message and exit.",
@@ -12,7 +17,12 @@
     "upload": "Usage: cli-app upload [OPTIONS] Uploads files or directories to CUE. Options: -q, --quiet Minimal console output. -v, --verbose Increase console output verbosity. --log-file PATH Path to a custom log file or directory. --config FILE Path to a custom configuration file. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. -t, --token TEXT Authentication API key. Overrides all other sources. -P, --path PATH Local file or directory path to be uploaded (repeat for several). -c, --collection TEXT Name of the target collection in the backend system. [required] -tp, --target-path TEXT User-defined sub-path within the collection for organization. -fc, --file-concurrency INTEGER RANGE Max number of files to upload concurrently (folder uploads). [x>=1] -pc, --part-concurrency INTEGER RANGE Max concurrent parts for a single multipart file. [x>=1] -y, --auto-approve Skip confirmation prompt for folder uploads. -h, --help Show this message and exit."
   },
   "help_show_all": {
-    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "<root>": "Usage: cli-app [OPTIONS] COMMAND [ARGS]... CUE Provider Utility: CLI for uploading files and folders to CUE. Options: --version Show the version and exit. -t, --token TEXT Authentication API key. Overrides all other sources. --env [prod|uat|sit|local] Target backend environment. Overrides default_env in config. --config FILE Path to a custom configuration file. Default: ~/.cue-upload/config.toml --log-file PATH Path to a custom log file or directory. Default: ~/.cue-upload/logs -v, --verbose Increase console output verbosity (-v for INFO, -vv for DEBUG with full network logs). -q, --quiet Minimal console output, showing only critical errors or final summaries. -h, --help Show this message and exit. Commands: upload Uploads files or directories to CUE. retry Retries all failed upload entries saved in the failed uploads log file. auth Manages upload keys per environment (OS keyring). configure Interactively configures CUE Provider Utility settings. ignore Manages ignored file patterns for folder uploads. logs Views application logs directly in the terminal. Examples: cue-upload upload -P ./data -c my_collection cue-upload retry cue-upload configure",
+    "auth": "Usage: cli-app auth [OPTIONS] COMMAND [ARGS]... Manages upload keys per environment (OS keyring). Options: -h, --help Show this message and exit. Commands: delete-key Removes the stored key for one environment. set-key Stores an API key for one environment in the OS keyring. status Shows which key each environment would use (never prints the key). test Checks that the key works with one quick call (never prints targets).",
+    "auth delete-key": "Usage: cli-app auth delete-key [OPTIONS] Removes the stored key for one environment. Options: --env [prod|uat|sit|local] Environment (default: default_env). --all-sources Also remove it from .netrc and config.toml. --yes Don't ask for confirmation. -h, --help Show this message and exit.",
+    "auth set-key": "Usage: cli-app auth set-key [OPTIONS] Stores an API key for one environment in the OS keyring. Options: --env [prod|uat|sit|local] Environment (default: default_env). --stdin Read the key from stdin. --key-id TEXT Key id (metadata only). --name TEXT Key name (metadata only). --expires-at TEXT Expiry, ISO 8601 (metadata only). --source TEXT Who stored it. [default: cli] -h, --help Show this message and exit.",
+    "auth status": "Usage: cli-app auth status [OPTIONS] Shows which key each environment would use (never prints the key). Options: --env [prod|uat|sit|local] One environment (default: all). --json Machine-readable output. -h, --help Show this message and exit.",
+    "auth test": "Usage: cli-app auth test [OPTIONS] Checks that the key works with one quick call (never prints targets). Options: --env [prod|uat|sit|local] Environment (default: default_env). --json Machine-readable output. -h, --help Show this message and exit.",
     "configure": "Usage: cli-app configure [OPTIONS] Interactively configures CUE Provider Utility settings. Options: --key Only prompt for and save the API key. -h, --help Show this message and exit.",
     "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds a new glob pattern to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
     "ignore add": "Usage: cli-app ignore add [OPTIONS] PATTERN Adds a new glob pattern to the user's ignore list. Options: -h, --help Show this message and exit.",
@@ -97,6 +107,160 @@
           "opts": [
             "-q",
             "--quiet"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "auth": {
+      "hidden": false,
+      "params": []
+    },
+    "auth delete-key": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "all_sources",
+          "opts": [
+            "--all-sources"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "yes",
+          "opts": [
+            "--yes"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "auth set-key": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "from_stdin",
+          "opts": [
+            "--stdin"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "key_id",
+          "opts": [
+            "--key-id"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "name",
+          "opts": [
+            "--name"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "expires_at",
+          "opts": [
+            "--expires-at"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "source",
+          "opts": [
+            "--source"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "auth status": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
+          ],
+          "required": false
+        }
+      ]
+    },
+    "auth test": {
+      "hidden": false,
+      "params": [
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "env",
+          "opts": [
+            "--env"
+          ],
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "as_json",
+          "opts": [
+            "--json"
           ],
           "required": false
         }

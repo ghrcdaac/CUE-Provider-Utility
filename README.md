@@ -62,10 +62,21 @@ The prompt will detect if you already have a key stored and ask if you want to o
 The CLI retrieves your API key from the following sources, in this order of priority:
 1. **Command-Line Argument:** The `-t` or `--token` option. (e.g., `cue-upload --token YOUR_KEY ...`)
 2. **Environment Variable:** The `CUE_UPLOAD_API_TOKEN` environment variable.
-3. **.netrc File:** A secure, permissions-controlled file in your home directory.
-4. **config.toml File:** The application's configuration file.
+3. **OS keyring (new in 1.4.0):** Windows Credential Manager, macOS Keychain, or Linux Secret Service. One key per environment (stored under the environment's API hostname), shared with the CUE desktop app.
+4. **.netrc File:** A secure, permissions-controlled file in your home directory.
+5. **config.toml File:** The application's configuration file (one shared key; a warning is shown when it is used for an environment other than `default_env`).
 
 The CLI will print which source it is using when you start an upload.
+
+### Keys per environment (`cue-upload auth`)
+```bash
+cue-upload auth set-key --env uat        # prompts with hidden input; stores in the OS keyring
+cue-upload auth status                   # which key each environment would use (never prints it)
+cue-upload auth test --env uat           # one quick call to check the key works
+cue-upload auth delete-key --env uat     # add --all-sources to also clear .netrc / config.toml
+```
+Keys are looked up by the environment's hostname, so a PROD key is never sent to UAT (or the reverse).
+On a Linux server without a Secret Service, the keyring is unavailable and the CLI keeps using `.netrc` as before.
 
 ## Basic Usage
 ### Activate the Virtual Environment
