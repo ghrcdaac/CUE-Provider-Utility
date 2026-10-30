@@ -1,0 +1,77 @@
+name: Release binaries
+
+# Builds the standalone one-dir binaries the desktop app bundles. Artifacts only:
+# publishing a GitHub Release is a manual owner step.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: dist/cue-upload/cue-upload.exe
+          - os: macos-14
+            target: aarch64-apple-darwin
+            exe: dist/cue-upload/cue-upload
+          - os: macos-13
+            target: x86_64-apple-darwin
+            exe: dist/cue-upload/cue-upload
+          - os: ubuntu-22.04 # older glibc for wider Linux compatibility
+            target: x86_64-unknown-linux-gnu
+            exe: dist/cue-upload/cue-upload
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry and dependencies
+        run: |
+          python -m pip install "poetry>=2,<3"
+          poetry install --no-interaction
+          poetry run pip install "pyinstaller>=6.10,<7"
+      - name: Build (PyInstaller --onedir)
+        working-directory: packaging
+        run: poetry run pyinstaller cue-upload.spec --noconfirm --clean --distpath ../dist --workpath ../build
+      - name: Smoke test
+        run: poetry run python packaging/smoke_test.py ${{ matrix.exe }}
+      - name: Package + SHA256SUMS
+        run: poetry run python packaging/package.py ${{ matrix.target }}
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/cue-upload-${{ matrix.target }}.*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cue-upload-${{ matrix.target }}
+          path: |
+            dist/cue-upload-${{ matrix.target }}.*
+            dist/SHA256SUMS
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Combined SHA256SUMS
+        run: |
+          cd artifacts
+          sha256sum */cue-upload-* | sed 's#  .*/#  #' > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: artifacts/SHA256SUMS
