@@ -141,3 +141,6 @@ logs/
 # ~/.cue-upload/ # This is a user directory, so it's not typically in the repo anyway.
 # But if you had a local dev config that you copied from, you might ignore it.
 # local_config.toml
+
+# Packaging spec for the standalone binaries is tracked
+!packaging/cue-upload.spec
