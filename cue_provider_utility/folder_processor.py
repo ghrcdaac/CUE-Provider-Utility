@@ -7,7 +7,7 @@ Scans directories, filters files, manages concurrent uploads of individual files
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Optional, List, Tuple
+from typing import Any, AsyncIterator, List, Optional, Tuple
 import click
 
 from .models import AppConfig, GlobalArgs
@@ -31,10 +31,20 @@ logger = logging.getLogger(__name__)
 class FileToUpload:
     """Represents a file discovered during folder scan, ready for upload."""
 
-    def __init__(self, local_path: Path, relative_path: Path, size: int):
+    def __init__(
+        self,
+        local_path: Path,
+        relative_path: Path,
+        size: int,
+        target_sub_path: Optional[str] = None,
+        posix_target: bool = False,
+    ):
         self.local_path = local_path
         self.relative_path = relative_path
         self.size = size
+        # Per-item destination override (multi-path / manifest uploads).
+        self.target_sub_path = target_sub_path
+        self.posix_target = posix_target
         self.status: str = "pending"
         self.error_message: Optional[str] = None
         self.failure: Optional[BaseException] = None
@@ -53,10 +63,71 @@ async def scan_folder(
     Scans a folder recursively, applying ignore patterns and file type validation.
     Returns a list of FileToUpload objects, total file count, and total size.
     """
-    files_to_upload: List[FileToUpload] = []
-    total_files_for_upload = 0
-    total_size_for_upload = 0
+    counts = ScanCounts()
+    files_to_upload = [
+        f
+        async for f in iter_scan_folder(
+            folder_path, config, config_path_override, counts
+        )
+    ]
+    logger.info(
+        f"Folder scan complete. Found {counts.files} files for upload ({format_bytes(counts.bytes)})."
+    )
+    return files_to_upload, counts.files, counts.bytes
 
+
+class ScanCounts:
+    """Running totals for the ``scan_summary`` event."""
+
+    def __init__(self) -> None:
+        self.files = 0
+        self.bytes = 0
+        self.ignored = 0
+        self.rejected = 0
+        self.empty = 0
+
+    def emit_summary(self) -> None:
+        events.emit(
+            "scan_summary",
+            files=self.files,
+            bytes=self.bytes,
+            ignored=self.ignored,
+            rejected=self.rejected,
+            empty=self.empty,
+        )
+
+
+def scan_event(
+    path: Path, rel_path: Path, size: Optional[int], status: str, reason: str = ""
+) -> None:
+    """Emits one ``scan_item`` event (events mode only; ``size=None`` → stat lazily)."""
+    if not events.enabled():
+        return
+    if size is None:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+    events.emit(
+        "scan_item",
+        item_id=events.current().file_id_for(path, size),
+        path=str(path),
+        rel_path=rel_path.as_posix(),
+        size=size,
+        status=status,
+        reason_code=reason or None,
+    )
+
+
+async def iter_scan_folder(
+    folder_path: Path,
+    config: AppConfig,
+    config_path_override: Optional[Path],
+    counts: ScanCounts,
+    target_sub_path: Optional[str] = None,
+    posix_target: bool = False,
+) -> AsyncIterator[FileToUpload]:
+    """Streams the files to upload from a folder (ignore rules + type checks applied)."""
     rich_console.print(f"[info]Scanning folder: [cyan]{folder_path}[/cyan]...")
 
     for item in folder_path.rglob("*"):
@@ -67,6 +138,11 @@ async def scan_folder(
                 logger.debug(
                     f"Ignoring path due to ignore rules: {item.relative_to(folder_path)}"
                 )
+                if events.enabled() and item.is_file():
+                    counts.ignored += 1
+                    scan_event(
+                        item, item.relative_to(folder_path), None, "ignored", "IGNORED"
+                    )
                 continue
 
             if item.is_file():
@@ -76,6 +152,14 @@ async def scan_folder(
                     logger.warning(str(e))
                     rich_console.print(
                         f"[yellow]Warning: Skipped file [bold]{item.name}[/bold]. Reason: {e}[/yellow]"
+                    )
+                    counts.rejected += 1
+                    scan_event(
+                        item,
+                        item.relative_to(folder_path),
+                        None,
+                        "rejected",
+                        "FILE_TYPE_DENIED",
                     )
                     continue
 
@@ -87,22 +171,22 @@ async def scan_folder(
                     rich_console.print(
                         f"[yellow]Warning: Skipping file [bold]{item.name}[/bold] because it is 0 B.[/yellow]"
                     )
+                    counts.empty += 1
+                    scan_event(item, item.relative_to(folder_path), 0, "empty", "EMPTY")
                     continue
                 relative_path = item.relative_to(folder_path)
-                files_to_upload.append(FileToUpload(item, relative_path, file_size))
-                total_files_for_upload += 1
-                total_size_for_upload += file_size
+                counts.files += 1
+                counts.bytes += file_size
+                scan_event(item, relative_path, file_size, "include")
+                yield FileToUpload(
+                    item, relative_path, file_size, target_sub_path, posix_target
+                )
 
         except Exception as e:
             logger.error(f"Error processing path {item} during scan: {e}")
             rich_console.print(
                 f"[red]Error scanning item {item.relative_to(folder_path)}: {e}[/red]"
             )
-
-    logger.info(
-        f"Folder scan complete. Found {total_files_for_upload} files for upload ({format_bytes(total_size_for_upload)})."
-    )
-    return files_to_upload, total_files_for_upload, total_size_for_upload
 
 
 def remote_path(collection: str, sub_path: Optional[str], name: str) -> str:
@@ -159,8 +243,18 @@ async def _upload_one_file_from_folder(
         file_id = events.current().file_id_for(file_task.local_path, file_task.size)
         progress.bind(file_task.task_id, file_id)
 
+    if file_task.target_sub_path is not None:
+        base_target_sub_path = file_task.target_sub_path
     effective_api_target_sub_path = base_target_sub_path if base_target_sub_path else ""
-    if file_task.relative_path.parent != Path("."):
+    if file_task.posix_target:
+        # Manifest items (desktop app): always '/' separators on every OS.
+        parent = file_task.relative_path.parent.as_posix()
+        parts = [
+            effective_api_target_sub_path.strip("/"),
+            "" if parent == "." else parent,
+        ]
+        effective_api_target_sub_path = "/".join(p for p in parts if p)
+    elif file_task.relative_path.parent != Path("."):
         effective_api_target_sub_path = str(
             Path(effective_api_target_sub_path) / file_task.relative_path.parent
         )
@@ -290,9 +384,17 @@ async def process_folder_upload(
     session_id: Optional[str] = None,
 ) -> None:
     """Orchestrates the upload of all files within a folder."""
-    files_to_upload_list, num_files, total_size = await scan_folder(
-        folder_path, config, global_args.config_path_override
+    counts = ScanCounts()
+    files_to_upload_list = [
+        f
+        async for f in iter_scan_folder(
+            folder_path, config, global_args.config_path_override, counts
+        )
+    ]
+    logger.info(
+        f"Folder scan complete. Found {counts.files} files for upload ({format_bytes(counts.bytes)})."
     )
+    counts.emit_summary()
 
     if not files_to_upload_list:
         rich_console.print(
@@ -300,22 +402,75 @@ async def process_folder_upload(
         )
         return
 
+    await process_batch(
+        files_to_upload_list,
+        label=f"Uploading folder: {folder_path.name}",
+        collection=collection,
+        target_sub_path=target_sub_path,
+        api_client=api_client,
+        config=config,
+        global_args=global_args,
+        file_concurrency=file_concurrency,
+        part_concurrency=part_concurrency,
+        auto_approve=auto_approve,
+        session_id=session_id,
+    )
+
+
+async def confirm_or_cancel(
+    files: List[FileToUpload], auto_approve: bool, global_args: GlobalArgs
+) -> None:
+    """Today's "Proceed with upload?" step; events mode uses the stdin handshake."""
+    if auto_approve:
+        return
+    num_files = len(files)
+    if events.enabled():
+        events.emit(
+            "confirm_required", files=num_files, bytes=sum(f.size for f in files)
+        )
+        from . import control
+
+        if not await control.wait_for_start():
+            raise UploadCancelledError("Upload cancelled by user.")
+        return
+    if global_args.non_interactive:
+        raise click.UsageError(
+            "Confirmation required: pass -y/--auto-approve in non-interactive mode."
+        )
+    rich_console.print("Files to be uploaded (first 10 shown):")
+    for f_task_item in files[:10]:
+        rich_console.print(
+            f"  - {f_task_item.relative_path} ({format_bytes(f_task_item.size)})"
+        )
+    if num_files > 10:
+        rich_console.print(f"  ...and {num_files - 10} more file(s).")
+
+    if not click.confirm("\nProceed with upload?", default=True):
+        raise UploadCancelledError("Upload cancelled by user.")
+
+
+async def process_batch(
+    files_to_upload_list: List[FileToUpload],
+    label: str,
+    collection: str,
+    target_sub_path: Optional[str],
+    api_client: ApiClient,
+    config: AppConfig,
+    global_args: GlobalArgs,
+    file_concurrency: int,
+    part_concurrency: int,
+    auto_approve: bool,
+    session_id: Optional[str] = None,
+) -> None:
+    """Confirms, then uploads a list of files with one shared file semaphore."""
+    num_files = len(files_to_upload_list)
+    total_size = sum(f.size for f in files_to_upload_list)
+
     rich_console.print(
         f"Found [bold]{num_files}[/bold] files to upload, total size: [bold]{format_bytes(total_size)}[/bold]."
     )
 
-    # Events mode never prompts on the terminal (the stdin handshake is step C2).
-    if not auto_approve and not events.enabled():
-        rich_console.print("Files to be uploaded (first 10 shown):")
-        for f_task_item in files_to_upload_list[:10]:
-            rich_console.print(
-                f"  - {f_task_item.relative_path} ({format_bytes(f_task_item.size)})"
-            )
-        if num_files > 10:
-            rich_console.print(f"  ...and {num_files - 10} more file(s).")
-
-        if not click.confirm("\nProceed with upload?", default=True):
-            raise UploadCancelledError("Upload cancelled by user.")
+    await confirm_or_cancel(files_to_upload_list, auto_approve, global_args)
 
     semaphore = asyncio.Semaphore(file_concurrency)
     selected_env_name = global_args.env_cli or config.default_env
@@ -331,9 +486,7 @@ async def process_folder_upload(
         part_concurrency=part_concurrency,
     )
     with make_progress() as progress:
-        folder_task_id = progress.add_task(
-            f"[bold]Uploading folder: {folder_path.name}[/bold]", total=num_files
-        )
+        folder_task_id = progress.add_task(f"[bold]{label}[/bold]", total=num_files)
 
         async def worker(file_to_upload_item: FileToUpload) -> None:
             async with semaphore:
