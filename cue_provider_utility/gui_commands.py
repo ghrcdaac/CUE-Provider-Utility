@@ -30,6 +30,7 @@ FEATURES = [
     "keyring",
     "trusted-endpoints",
     "gui-targets",
+    "retry-entry",
 ]
 
 # Keys the app may change. Speed presets: Gentle = 2/2, Standard = 4/4, Fast = 8/8

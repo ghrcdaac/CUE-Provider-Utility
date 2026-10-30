@@ -21,7 +21,7 @@ cue-upload upload --manifest <file> -c <collection> [-tp <sub_path>] \
 - The key is never passed in argv or env: remove `CUE_UPLOAD_API_TOKEN` from the child env.
 
 ## Retry
-`cue-upload retry --json-events [--non-interactive]` (same events; `retry_round` per round).
+`cue-upload retry [--entry-id ID …] --json-events [--non-interactive]` (same events; `retry_round` per round; without `--entry-id` all entries are retried).
 
 ## stdin control channel (events mode)
 One JSON object per line:

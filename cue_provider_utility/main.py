@@ -842,6 +842,12 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool) -> None:
     help="Path to a custom failed uploads log file.",
 )
 @click.option(
+    "--entry-id",
+    "entry_ids",
+    multiple=True,
+    help="Retry only this failed-upload entry (repeatable). Default: all entries.",
+)
+@click.option(
     "--non-interactive",
     "non_interactive",
     is_flag=True,
@@ -854,6 +860,7 @@ def logs_command(ctx: click.Context, lines: Optional[int], raw: bool) -> None:
 def retry_command(
     ctx: click.Context,
     failed_log_override: Optional[Path],
+    entry_ids: Tuple[str, ...],
     non_interactive: bool,
     json_events: bool,
     trusted_endpoints: bool,
@@ -905,6 +912,19 @@ def retry_command(
     rich_console.print(
         f"Found [bold cyan]{len(failed_entries)}[/bold cyan] failed upload item(s) in [dim]{target_failed_log}[/dim]"
     )
+
+    if entry_ids:
+        wanted = set(entry_ids)
+        failed_entries = [e for e in failed_entries if e.entry_id in wanted]
+        missing = wanted - {e.entry_id for e in failed_entries}
+        if missing:
+            rich_console.print(
+                f"[yellow]Not in the failed uploads log: {', '.join(sorted(missing))}[/yellow]"
+            )
+        if not failed_entries:
+            _finish_events()
+            _exit("usage", 1)
+            return
 
     try:
         succeeded, failed = asyncio.run(
