@@ -164,6 +164,15 @@ CATALOG: Dict[str, Msg] = {
             hint="Ask your DAAC manager to assign you to this collection's provider.",
         ),
         _m(
+            "SERVER_BUSY",
+            "error",
+            "CUE is having trouble",
+            "{detail}",
+            False,
+            retryable=True,
+            hint="Files are retried automatically; if it keeps happening, try again later.",
+        ),
+        _m(
             "NETWORK",
             "error",
             "Network problem",
@@ -295,6 +304,8 @@ def map_exception(exc: BaseException) -> str:
                 return "FORBIDDEN"
             if status == 404:
                 return "COLLECTION_NOT_FOUND"
+        if status == 429 or status >= 500:
+            return "SERVER_BUSY"
         if "checksum" in text:
             return "CHECKSUM_FAILED"
         return "UPLOAD_FAILED"

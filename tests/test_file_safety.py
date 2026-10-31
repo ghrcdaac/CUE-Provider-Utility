@@ -88,3 +88,12 @@ def test_part_size_grows_for_very_large_files():
     size = part_size_for(big, 100)
     assert size is not None and size % mb == 0 and -(-big // size) <= S3_MAX_PARTS
     assert part_size_for(60 * 1024**4, 100) is None  # beyond S3's 5 GB x 10,000 limit
+
+
+def test_server_errors_have_their_own_code():
+    from cue_provider_utility.exceptions import APIRequestError
+    from cue_provider_utility.messages import map_exception
+
+    assert map_exception(APIRequestError("boom", status_code=503)) == "SERVER_BUSY"
+    assert map_exception(APIRequestError("slow down", status_code=429)) == "SERVER_BUSY"
+    assert map_exception(APIRequestError("bad", status_code=400)) == "UPLOAD_FAILED"
