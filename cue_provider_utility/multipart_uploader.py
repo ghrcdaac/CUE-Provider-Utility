@@ -32,6 +32,20 @@ import aiofiles
 logger = logging.getLogger(__name__)
 
 S3_MAX_PARTS = 10000
+S3_MAX_PART_BYTES = 5 * 1024**3
+
+
+def part_size_for(file_size: int, configured_mb: int) -> Optional[int]:
+    """Part size for a file: the configured size, raised (in whole MB) when the file
+    would otherwise need more than S3's 10,000 parts. None if no part size fits."""
+    size = configured_mb * 1024**2
+    if file_size <= size * S3_MAX_PARTS:
+        return size
+    mb = 1024**2
+    needed = -(-file_size // S3_MAX_PARTS)  # ceiling division
+    size = -(-needed // mb) * mb
+    return size if size <= S3_MAX_PART_BYTES else None
+
 
 # Multipart uploads started but not yet completed/aborted (upload_id -> info).
 # On cancel (events mode) every entry is aborted so S3 keeps no orphaned parts.
@@ -178,12 +192,18 @@ async def handle_multipart_upload(
             f"[info]Preparing multipart upload for: [bold cyan]{file_path.name}[/bold cyan] ({format_bytes(file_size)})"
         )
 
-    chunk_size_bytes = config.multipart_chunk_size_mb * (1024**2)
-    num_parts = math.ceil(file_size / chunk_size_bytes) if file_size > 0 else 0
-    if num_parts > S3_MAX_PARTS:
+    chunk_size_bytes = part_size_for(file_size, config.multipart_chunk_size_mb)
+    if chunk_size_bytes is None:
         raise UploadError(
-            f"File {file_path.name} requires {num_parts} parts, exceeding S3 limit of {S3_MAX_PARTS}."
+            f"File {file_path.name} ({format_bytes(file_size)}) is larger than the "
+            f"{format_bytes(S3_MAX_PARTS * S3_MAX_PART_BYTES)} S3 allows for one file."
         )
+    if chunk_size_bytes != config.multipart_chunk_size_mb * (1024**2):
+        logger.info(
+            f"{file_path.name}: using {format_bytes(chunk_size_bytes)} parts "
+            f"(the configured size would need more than {S3_MAX_PARTS} parts)."
+        )
+    num_parts = math.ceil(file_size / chunk_size_bytes) if file_size > 0 else 0
 
     if cached_content_type:
         mime_type = cached_content_type

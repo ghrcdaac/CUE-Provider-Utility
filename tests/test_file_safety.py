@@ -77,3 +77,14 @@ def test_unreadable_failed_log_is_kept_not_wiped(tmp_path):
     ]
     assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == "{not json"
     assert len(json.loads(log.read_text(encoding="utf-8"))["failed_uploads"]) == 1
+
+
+def test_part_size_grows_for_very_large_files():
+    from cue_provider_utility.multipart_uploader import S3_MAX_PARTS, part_size_for
+
+    mb = 1024**2
+    assert part_size_for(10 * 1024**3, 100) == 100 * mb  # 10 GB fits in 100 MB parts
+    big = 2 * 1024**4  # 2 TB needs more than 10,000 x 100 MB parts
+    size = part_size_for(big, 100)
+    assert size is not None and size % mb == 0 and -(-big // size) <= S3_MAX_PARTS
+    assert part_size_for(60 * 1024**4, 100) is None  # beyond S3's 5 GB x 10,000 limit

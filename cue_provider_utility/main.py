@@ -793,9 +793,7 @@ def ignore_add_command(
                     "[dim]Tip: Use wildcards for broad matches (e.g., '*.log' to ignore all log files).[/dim]"
                 )
             else:
-                rich_console.print(
-                    f"[yellow]Pattern '{one}' already exists.[/yellow]"
-                )
+                rich_console.print(f"[yellow]Pattern '{one}' already exists.[/yellow]")
             return
         items = list(pattern)
         if from_file is not None:
