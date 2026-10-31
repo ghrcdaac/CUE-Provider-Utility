@@ -88,6 +88,13 @@ CATALOG: Dict[str, Msg] = {
             "{name} is empty (0 B) and was skipped.",
             False,
         ),
+        _m(
+            "RESUME_SKIPPED",
+            "info",
+            "Already uploaded",
+            "{count} file(s) that finished in the earlier run were skipped.",
+            False,
+        ),
         _m("CANCELLED", "info", "Upload cancelled", "The upload was cancelled.", True),
         # Warning
         _m(

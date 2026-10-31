@@ -35,7 +35,7 @@ from .exceptions import (
     UploadError,
     ConfigError,
 )
-from . import control, credential_store, endpoints, events, messages
+from . import control, credential_store, endpoints, events, messages, resume_log
 from .endpoints import trusted_options
 from .gui_commands import gui_group
 from .auth_commands import auth_group, now_iso as _now_iso
@@ -361,6 +361,13 @@ def _load_items(
     help='JSON file {"items":[{"path":"...","target_path":"..."}]} (desktop app).',
 )
 @click.option(
+    "--resume-file",
+    "resume_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    hidden=True,
+    help="Desktop app: record finished files here and skip them when started again.",
+)
+@click.option(
     "--non-interactive",
     "non_interactive",
     is_flag=True,
@@ -405,6 +412,7 @@ def upload_command(
     ctx: click.Context,
     upload_paths: Tuple[Path, ...],
     manifest_path: Optional[Path],
+    resume_file: Optional[Path],
     non_interactive: bool,
     collection: str,
     target_path: Optional[str],
@@ -439,6 +447,7 @@ def upload_command(
     if not manifest_path and not upload_paths:
         raise click.UsageError("Missing option '-P' / '--path'.")
     items = _load_items(upload_paths, manifest_path)
+    resume_log.activate(resume_file)
     global_args.non_interactive = non_interactive or json_events
     _start_events(json_events, global_args)
 

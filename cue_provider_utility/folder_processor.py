@@ -21,7 +21,7 @@ from .api_client import ApiClient
 from .utils import get_file_size, validate_file_type, format_bytes
 from .ignored_files_handler import is_path_ignored
 from .logger_setup import rich_console
-from . import events, messages
+from . import events, messages, resume_log
 from .progress_adapter import JsonProgress, make_progress
 from rich.progress import TaskID
 
@@ -292,6 +292,13 @@ async def _upload_one_file_from_folder(
                 task_id=file_task.task_id,
             )
         file_task.status = "success"
+        log = resume_log.active()
+        if log is not None:
+            log.record(
+                file_task.local_path,
+                file_task.size,
+                resume_log.destination(collection, file_task),
+            )
         if file_id:
             events.current().file_done(
                 file_id,

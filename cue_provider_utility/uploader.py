@@ -31,7 +31,7 @@ from .ignored_files_handler import is_path_ignored
 from .failed_uploads_handler import FailedUploadsManager
 from .logger_setup import rich_console
 from .progress_adapter import JsonProgress
-from . import events, messages
+from . import events, messages, resume_log
 
 
 logger = logging.getLogger(__name__)
@@ -481,6 +481,13 @@ async def process_upload_items(
         raise ConfigError(f"Environment '{selected_env_name}' not defined in config.")
 
     files = await _collect_items(items, target_sub_path, config, global_args)
+    # "Start again" in the desktop app: skip what the earlier run already uploaded.
+    files, already = resume_log.split_done(files, collection)
+    if already:
+        rich_console.print(
+            f"[info]{already} file(s) already uploaded in the earlier run were skipped.[/info]"
+        )
+        messages.report("RESUME_SKIPPED", count=already)
     if not files:
         rich_console.print(
             "[yellow]No files found to upload (after applying ignore rules and file type validation).[/yellow]"
