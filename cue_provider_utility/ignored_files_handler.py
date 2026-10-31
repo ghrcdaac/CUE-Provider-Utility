@@ -82,6 +82,68 @@ def add_user_ignore_pattern(
         )
 
 
+MAX_PATTERN_LENGTH = 200
+
+
+def split_patterns(text: str) -> List[str]:
+    """Splits a pasted list on new lines, commas and semicolons.
+
+    Spaces inside a pattern are kept (file names can contain spaces); blank items and
+    lines starting with '#' (comments in a patterns file) are dropped.
+    """
+    parts: List[str] = []
+    for line in text.splitlines():
+        if line.strip().startswith("#"):
+            continue
+        for chunk in line.replace(";", ",").split(","):
+            item = chunk.strip()
+            if item:
+                parts.append(item)
+    return parts
+
+
+def pattern_problem(pattern: str) -> Optional[str]:
+    """Why a pattern can't be saved, or None if it's fine."""
+    if not pattern.strip():
+        return "empty"
+    if len(pattern) > MAX_PATTERN_LENGTH:
+        return f"longer than {MAX_PATTERN_LENGTH} characters"
+    if any(ord(c) < 32 for c in pattern):
+        return "contains control characters"
+    return None
+
+
+def add_user_ignore_patterns(
+    patterns: List[str], config_path_override: Optional[Path] = None
+) -> Tuple[List[str], List[str], List[Tuple[str, str]]]:
+    """Adds several patterns with one save.
+
+    Returns (added, already_present, invalid) where invalid holds (pattern, reason).
+    """
+    current = get_user_ignore_patterns(config_path_override)
+    added: List[str] = []
+    present: List[str] = []
+    invalid: List[Tuple[str, str]] = []
+    for raw in patterns:
+        pattern = raw.strip()
+        problem = pattern_problem(pattern)
+        if problem:
+            invalid.append((raw, problem))
+        elif pattern in current or pattern in added:
+            present.append(pattern)
+        else:
+            added.append(pattern)
+    if added:
+        try:
+            set_user_ignore_patterns(current + added, config_path_override)
+        except ConfigError as e:
+            raise IgnoredFileError(
+                f"Failed to save updated ignore patterns: {e}", original_exception=e
+            )
+        logger.info(f"Added {len(added)} pattern(s) to the user ignore list.")
+    return added, present, invalid
+
+
 def remove_user_ignore_pattern(
     pattern: str, config_path_override: Optional[Path] = None
 ) -> bool:

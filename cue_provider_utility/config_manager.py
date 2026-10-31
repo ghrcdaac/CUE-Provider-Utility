@@ -11,6 +11,7 @@ import logging
 
 from .models import AppConfig
 from .exceptions import ConfigError
+from .file_safety import atomic_write_text, locked
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +88,8 @@ def save_config(config_data: AppConfig, config_file_path: Path) -> None:
             mode="json", exclude_defaults=False, exclude_none=False
         )
 
-        with open(config_file_path, "w", encoding="utf-8") as f:
-            toml.dump(config_dict, f)
+        # Atomic: a reader (the other process) never sees a half-written file.
+        atomic_write_text(config_file_path, toml.dumps(config_dict))
         logger.info(f"Configuration saved to {config_file_path}")
     except Exception as e:
         logger.error(f"Failed to save configuration to {config_file_path}: {e}")
@@ -124,7 +125,15 @@ def save_config_value(
 ) -> None:
     """Saves a specific key-value pair to the configuration."""
     config_file_to_use = get_config_file_path(config_path_override)
-    current_config = get_config(config_file_to_use)
+    with locked(config_file_to_use):
+        _save_config_value_locked(key, value, config_file_to_use)
+
+
+def _save_config_value_locked(key: str, value: Any, config_file_to_use: Path) -> None:
+    # Re-read the file (not the cache) so a change made by the other process
+    # (terminal CLI or the desktop app) since we loaded isn't lost.
+    ensure_config_exists(config_file_to_use)
+    current_config = load_config(config_file_to_use)
 
     if "." in key:
         parent_key, child_key = key.split(".", 1)

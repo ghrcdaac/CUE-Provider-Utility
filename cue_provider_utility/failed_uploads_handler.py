@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from .models import FailedUploadEntry, FailedUploadsContainer
 from .config_manager import get_config
+from .file_safety import atomic_write_text, locked
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,15 @@ async def load_failed_uploads_container(log_path: Path) -> FailedUploadsContaine
         return container
     except Exception as e:
         logger.error(f"Error reading failed uploads file at {log_path}: {e}")
+        # Keep the unreadable file so the next save can't silently drop its entries.
+        try:
+            backup = log_path.with_name(
+                f"{log_path.name}.unreadable-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"
+            )
+            log_path.replace(backup)
+            logger.warning(f"Moved the unreadable failed uploads file to {backup}")
+        except OSError:
+            pass
         return FailedUploadsContainer()
 
 
@@ -62,8 +72,7 @@ async def save_failed_uploads_container(
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         container_dict = container.model_dump(mode="json", exclude_none=False)
-        with open(log_path, "w", encoding="utf-8") as f:
-            json.dump(container_dict, f, indent=2)
+        atomic_write_text(log_path, json.dumps(container_dict, indent=2))
         logger.debug(f"Saved failed uploads log to {log_path}")
     except Exception as e:
         logger.error(f"Failed to save failed uploads log to {log_path}: {e}")
@@ -77,41 +86,45 @@ class FailedUploadsManager:
         entry: FailedUploadEntry, log_path: Path
     ) -> FailedUploadEntry:
         """Appends or updates a failed upload entry in the log file."""
+        if not entry.entry_id:
+            entry.entry_id = str(uuid4())
+        if not entry.timestamp:
+            entry.timestamp = datetime.now(timezone.utc).isoformat()
+
+        # The asyncio lock covers this process; the file lock covers another
+        # cue-upload (terminal or desktop app) changing the same file.
         async with _lock:
-            if not entry.entry_id:
-                entry.entry_id = str(uuid4())
-            if not entry.timestamp:
-                entry.timestamp = datetime.now(timezone.utc).isoformat()
+            with locked(log_path):
+                container = await load_failed_uploads_container(log_path)
 
-            container = await load_failed_uploads_container(log_path)
-
-            # Remove any pre-existing entry for the exact same file path and collection if present
-            container.failed_uploads = [
-                e
-                for e in container.failed_uploads
-                if not (
-                    e.file_path.resolve() == entry.file_path.resolve()
-                    and e.collection == entry.collection
-                    and e.target_sub_path == entry.target_sub_path
-                )
-            ]
-            container.failed_uploads.append(entry)
-            await save_failed_uploads_container(container, log_path)
-            return entry
+                # Remove any pre-existing entry for the exact same file path and collection if present
+                container.failed_uploads = [
+                    e
+                    for e in container.failed_uploads
+                    if not (
+                        e.file_path.resolve() == entry.file_path.resolve()
+                        and e.collection == entry.collection
+                        and e.target_sub_path == entry.target_sub_path
+                    )
+                ]
+                container.failed_uploads.append(entry)
+                await save_failed_uploads_container(container, log_path)
+                return entry
 
     @staticmethod
     async def remove_failed_entry(entry_id: str, log_path: Path) -> bool:
         """Removes a failed upload entry by its entry_id."""
         async with _lock:
-            container = await load_failed_uploads_container(log_path)
-            initial_count = len(container.failed_uploads)
-            container.failed_uploads = [
-                e for e in container.failed_uploads if e.entry_id != entry_id
-            ]
-            removed = len(container.failed_uploads) < initial_count
-            if removed:
-                await save_failed_uploads_container(container, log_path)
-            return removed
+            with locked(log_path):
+                container = await load_failed_uploads_container(log_path)
+                initial_count = len(container.failed_uploads)
+                container.failed_uploads = [
+                    e for e in container.failed_uploads if e.entry_id != entry_id
+                ]
+                removed = len(container.failed_uploads) < initial_count
+                if removed:
+                    await save_failed_uploads_container(container, log_path)
+                return removed
 
     @staticmethod
     async def get_failed_entries(
@@ -130,4 +143,5 @@ class FailedUploadsManager:
     async def clear_failed_entries(log_path: Path) -> None:
         """Clears all entries in the failed uploads log."""
         async with _lock:
-            await save_failed_uploads_container(FailedUploadsContainer(), log_path)
+            with locked(log_path):
+                await save_failed_uploads_container(FailedUploadsContainer(), log_path)

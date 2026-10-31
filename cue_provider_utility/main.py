@@ -19,6 +19,8 @@ from .auth_handler import get_api_key
 from .netrc_handler import save_key_to_netrc, get_key_from_netrc, remove_key_from_netrc
 from .ignored_files_handler import (
     add_user_ignore_pattern,
+    add_user_ignore_patterns,
+    split_patterns,
     remove_user_ignore_pattern,
     list_ignore_patterns,
     reset_user_ignore_patterns,
@@ -766,20 +768,51 @@ def ignore_list_command(ctx: click.Context) -> None:
 
 
 @ignore_group.command("add")
-@click.argument("pattern", type=str)
+@click.argument("pattern", nargs=-1, type=str)
+@click.option(
+    "--from-file",
+    "from_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Add the patterns listed in a file (one per line; commas and semicolons also separate).",
+)
 @click.pass_context
-def ignore_add_command(ctx: click.Context, pattern: str) -> None:
-    """Adds a new glob pattern to the user's ignore list."""
+def ignore_add_command(
+    ctx: click.Context, pattern: Tuple[str, ...], from_file: Optional[Path]
+) -> None:
+    """Adds one or more glob patterns to the user's ignore list."""
     global_args: GlobalArgs = ctx.obj
+    if not pattern and from_file is None:
+        raise click.UsageError("Give at least one PATTERN, or --from-file.")
     try:
-        if add_user_ignore_pattern(pattern, global_args.config_path_override):
-            rich_console.print(f"[green]Pattern '{pattern}' added.[/green]")
-            rich_console.print(
-                "[dim]Tip: Use wildcards for broad matches (e.g., '*.log' to ignore all log files).[/dim]"
-            )
-        else:
-            rich_console.print(f"[yellow]Pattern '{pattern}' already exists.[/yellow]")
-    except CUEProviderError as e:
+        # One pattern: exactly the original behavior and messages.
+        if len(pattern) == 1 and from_file is None:
+            one = pattern[0]
+            if add_user_ignore_pattern(one, global_args.config_path_override):
+                rich_console.print(f"[green]Pattern '{one}' added.[/green]")
+                rich_console.print(
+                    "[dim]Tip: Use wildcards for broad matches (e.g., '*.log' to ignore all log files).[/dim]"
+                )
+            else:
+                rich_console.print(
+                    f"[yellow]Pattern '{one}' already exists.[/yellow]"
+                )
+            return
+        items = list(pattern)
+        if from_file is not None:
+            items += split_patterns(from_file.read_text(encoding="utf-8"))
+        added, present, invalid = add_user_ignore_patterns(
+            items, global_args.config_path_override
+        )
+        for p in added:
+            rich_console.print(f"[green]Pattern '{p}' added.[/green]")
+        for p in present:
+            rich_console.print(f"[yellow]Pattern '{p}' already exists.[/yellow]")
+        for p, why in invalid:
+            rich_console.print(f"[red]Skipped '{p}': {why}.[/red]")
+        rich_console.print(
+            f"{len(added)} added, {len(present)} already present, {len(invalid)} skipped."
+        )
+    except (CUEProviderError, OSError) as e:
         rich_console.print(f"[red]Error: {e}[/red]")
 
 

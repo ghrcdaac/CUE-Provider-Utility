@@ -16,8 +16,8 @@
     "auth status": "Usage: cli-app auth status [OPTIONS] Shows which key each environment would use (never prints the key). Options: --env [prod|uat|sit|local] One environment (default: all). --json Machine-readable output. -h, --help Show this message and exit.",
     "auth test": "Usage: cli-app auth test [OPTIONS] Checks that the key works with one quick call (never prints targets). Options: --env [prod|uat|sit|local] Environment (default: default_env). --json Machine-readable output. -h, --help Show this message and exit.",
     "configure": "Usage: cli-app configure [OPTIONS] Interactively configures CUE Provider Utility settings. Options: --key Only prompt for and save the API key. -h, --help Show this message and exit.",
-    "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds a new glob pattern to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
-    "ignore add": "Usage: cli-app ignore add [OPTIONS] PATTERN Adds a new glob pattern to the user's ignore list. Options: -h, --help Show this message and exit.",
+    "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds one or more glob patterns to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
+    "ignore add": "Usage: cli-app ignore add [OPTIONS] [PATTERN]... Adds one or more glob patterns to the user's ignore list. Options: --from-file FILE Add the patterns listed in a file (one per line; commas and semicolons also separate). -h, --help Show this message and exit.",
     "ignore list": "Usage: cli-app ignore list [OPTIONS] Displays active system default and user-defined ignored file patterns. Options: -h, --help Show this message and exit.",
     "ignore remove": "Usage: cli-app ignore remove [OPTIONS] PATTERN Removes a glob pattern from the user's ignore list. Options: -h, --help Show this message and exit.",
     "ignore reset": "Usage: cli-app ignore reset [OPTIONS] Clears all patterns from the user's ignore list. Options: --yes Confirm the action without prompting. -h, --help Show this message and exit.",
@@ -42,8 +42,8 @@
     "auth status": "Usage: cli-app auth status [OPTIONS] Shows which key each environment would use (never prints the key). Options: --env [prod|uat|sit|local] One environment (default: all). --json Machine-readable output. -h, --help Show this message and exit.",
     "auth test": "Usage: cli-app auth test [OPTIONS] Checks that the key works with one quick call (never prints targets). Options: --env [prod|uat|sit|local] Environment (default: default_env). --json Machine-readable output. -h, --help Show this message and exit.",
     "configure": "Usage: cli-app configure [OPTIONS] Interactively configures CUE Provider Utility settings. Options: --key Only prompt for and save the API key. -h, --help Show this message and exit.",
-    "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds a new glob pattern to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
-    "ignore add": "Usage: cli-app ignore add [OPTIONS] PATTERN Adds a new glob pattern to the user's ignore list. Options: -h, --help Show this message and exit.",
+    "ignore": "Usage: cli-app ignore [OPTIONS] COMMAND [ARGS]... Manages ignored file patterns for folder uploads. Options: -h, --help Show this message and exit. Commands: add Adds one or more glob patterns to the user's ignore list. list Displays active system default and user-defined ignored file patterns. remove Removes a glob pattern from the user's ignore list. reset Clears all patterns from the user's ignore list.",
+    "ignore add": "Usage: cli-app ignore add [OPTIONS] [PATTERN]... Adds one or more glob patterns to the user's ignore list. Options: --from-file FILE Add the patterns listed in a file (one per line; commas and semicolons also separate). -h, --help Show this message and exit.",
     "ignore list": "Usage: cli-app ignore list [OPTIONS] Displays active system default and user-defined ignored file patterns. Options: -h, --help Show this message and exit.",
     "ignore remove": "Usage: cli-app ignore remove [OPTIONS] PATTERN Removes a glob pattern from the user's ignore list. Options: -h, --help Show this message and exit.",
     "ignore reset": "Usage: cli-app ignore reset [OPTIONS] Clears all patterns from the user's ignore list. Options: --yes Confirm the action without prompting. -h, --help Show this message and exit.",
@@ -508,7 +508,17 @@
           "opts": [
             "pattern"
           ],
-          "required": true
+          "required": false
+        },
+        {
+          "hidden": false,
+          "kind": "Option",
+          "multiple": false,
+          "name": "from_file",
+          "opts": [
+            "--from-file"
+          ],
+          "required": false
         }
       ]
     },
