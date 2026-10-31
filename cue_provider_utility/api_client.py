@@ -22,7 +22,7 @@ from .models import (
     MultipartAbortRequest,
 )
 from .exceptions import APIRequestError, ConfigError
-from .endpoints import tls_verify
+from .endpoints import S3_TRANSFER_TIMEOUT, tls_verify
 from rich.progress import Progress
 import aiofiles
 from pathlib import Path
@@ -323,7 +323,9 @@ class ApiClient:
     ) -> httpx.Response:
         headers = {"Content-Length": str(content_length)}
         try:
-            async with httpx.AsyncClient(timeout=None, verify=tls_verify()) as client:
+            async with httpx.AsyncClient(
+                timeout=S3_TRANSFER_TIMEOUT, verify=tls_verify()
+            ) as client:
                 response = await client.put(url, content=file_data, headers=headers)
 
             if response.status_code != 200:

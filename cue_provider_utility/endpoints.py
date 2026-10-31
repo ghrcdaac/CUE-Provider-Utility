@@ -7,6 +7,7 @@ standalone CLI behaves as before, with a one-time warning when config.toml
 points an official environment at a different host.
 """
 
+import httpx
 import logging
 import os
 import ssl
@@ -107,3 +108,9 @@ def trusted_options(f: Any) -> Any:
         help="Use only the built-in API URLs (desktop app).",
     )(f)
     return f
+
+
+# S3 transfers: no total limit (a big file on a slow link takes a while), but a
+# connection that stops moving for 10 minutes fails and is retried instead of
+# hanging the upload forever (plan 22 R-D9).
+S3_TRANSFER_TIMEOUT = httpx.Timeout(60.0, read=600.0, write=600.0)

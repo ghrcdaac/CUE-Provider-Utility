@@ -20,7 +20,7 @@ from .logger_setup import rich_console
 from .models import AppConfig, CompleteSingleRequest, PrepareSingleRequest
 from .utils import calculate_sha256_checksum, get_mime_type
 from .progress_adapter import stage
-from .endpoints import tls_verify
+from .endpoints import S3_TRANSFER_TIMEOUT, tls_verify
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,9 @@ async def _perform_upload(
             progress.reset(
                 task_id, total=file_size, description=f"Uploading {file_path.name}"
             )
-            async with httpx.AsyncClient(timeout=None, verify=tls_verify()) as client:
+            async with httpx.AsyncClient(
+                timeout=S3_TRANSFER_TIMEOUT, verify=tls_verify()
+            ) as client:
                 response = await client.put(
                     url=str(prepare_response.presigned_url),
                     content=api_client.read_in_chunks(
