@@ -59,3 +59,12 @@ uploads, emits `file_stage CANCELLED` for unfinished files (they are **not** wri
 
 Key hand-off: `cue-upload --trusted-endpoints auth set-key --env E --stdin --key-id … --name … --expires-at … --source gui`
 (key on stdin only), then `auth status --env E --json` / `_gui targets --env E --json`.
+
+## Resuming an unfinished upload (`--resume-file`, feature `resume-file`)
+`upload --manifest … --resume-file <path>` appends one JSON line per finished file
+(`path`, `size`, `mtime_ns`, `target`). When the same command runs again with the same
+resume file (the app's "Start again" after a crash or a stopped batch), files with the same
+path, size, modification time and destination are skipped and one `RESUME_SKIPPED` notice
+reports how many. A line cut short by a crash is ignored (that file is uploaded again).
+The app deletes the file after a finished run (exit 0 or 1) and prunes week-old ones.
+Only pass it when `_gui capabilities` lists `resume-file`.

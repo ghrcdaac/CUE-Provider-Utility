@@ -54,9 +54,9 @@ All codes, titles, texts and hints live in `cue_provider_utility/messages.py` (`
 | severity | codes |
 | --- | --- |
 | success | `UPLOAD_OK`, `BATCH_OK`, `RETRY_OK` |
-| info | `SCAN_DONE`, `SKIPPED_IGNORED`, `SKIPPED_EMPTY`, `CANCELLED` |
+| info | `RESUME_SKIPPED` (`count`: files finished by an earlier run, see `--resume-file`), `SCAN_DONE`, `SKIPPED_IGNORED`, `SKIPPED_EMPTY`, `CANCELLED` |
 | warning | `BATCH_PARTIAL`, `KEY_EXPIRING`, `CONFIG_KEY_SHARED` |
-| error | `AUTH_MISSING`, `AUTH_INVALID`, `FORBIDDEN`, `COLLECTION_NOT_FOUND`, `COLLECTION_INACTIVE`, `PROVIDER_DISABLED`, `NOT_ASSIGNED`, `NETWORK`, `TIMEOUT`, `S3_PUT_FAILED`, `CHECKSUM_FAILED`, `FILE_READ`, `FILE_TYPE_DENIED`, `CONFIG`, `SERVER_TOO_OLD`, `UPLOAD_FAILED`, `INTERNAL` |
+| error | `AUTH_MISSING`, `AUTH_INVALID`, `FORBIDDEN`, `COLLECTION_NOT_FOUND`, `COLLECTION_INACTIVE`, `PROVIDER_DISABLED`, `NOT_ASSIGNED`, `SERVER_BUSY` (HTTP 5xx/429, retryable), `NETWORK`, `TIMEOUT`, `S3_PUT_FAILED`, `CHECKSUM_FAILED`, `FILE_READ`, `FILE_TYPE_DENIED`, `CONFIG`, `SERVER_TOO_OLD`, `UPLOAD_FAILED`, `INTERNAL` |
 
 Compatibility: new event types and new optional fields may be added within v1; consumers must ignore
 unknown types and fields. Removing or renaming a field requires `v: 2`.
